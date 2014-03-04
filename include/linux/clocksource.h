@@ -326,6 +326,12 @@ static inline void __clocksource_updatefreq_khz(struct clocksource *cs, u32 khz)
 	__clocksource_updatefreq_scale(cs, 1000, khz);
 }
 
+void clocksource_switch(char *override);
+#if defined(CONFIG_X86_EARLYMIC) && defined(CONFIG_MK1OM)
+void watchdog_tsc_enable(void);
+void watchdog_tsc_disable(void);
+struct clocksource* get_curr_clocksource(void);
+#endif
 
 extern int timekeeping_notify(struct clocksource *clock);
 

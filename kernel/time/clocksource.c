@@ -1,3 +1,26 @@
+/* * Copyright (c) 2010 - 2012 Intel Corporation.
+*
+* Disclaimer: The codes contained in these modules may be specific to the
+* Intel Software Development Platform codenamed: Knights Ferry, and the 
+* Intel product codenamed: Knights Corner, and are not backward compatible 
+* with other Intel products. Additionally, Intel will NOT support the codes 
+* or instruction set in future products.
+*
+* Intel offers no warranty of any kind regarding the code.  This code is
+* licensed on an "AS IS" basis and Intel is not obligated to provide any support,
+* assistance, installation, training, or other services of any kind.  Intel is 
+* also not obligated to provide any updates, enhancements or extensions.  Intel 
+* specifically disclaims any warranty of merchantability, non-infringement, 
+* fitness for any particular purpose, and any other warranty.
+*
+* Further, Intel disclaims all liability of any kind, including but not
+* limited to liability for infringement of any proprietary rights, relating
+* to the use of the code, even if Intel is notified of the possibility of
+* such liability.  Except as expressly stated in an Intel license agreement
+* provided with this code and agreed upon with Intel, no license, express
+* or implied, by estoppel or otherwise, to any intellectual property rights
+* is granted herein.
+*/
 /*
  * linux/kernel/time/clocksource.c
  *
@@ -180,6 +203,9 @@ static char override_name[CS_NAME_LEN];
 static int finished_booting;
 
 #ifdef CONFIG_CLOCKSOURCE_WATCHDOG
+#define WATCHDOG_TSC_IGNORE		1
+#define WATCHDOG_TSC_IGNORE_ONCE	2
+static int watchdog_tsc_ignore = 0;
 static void clocksource_watchdog_work(struct work_struct *work);
 static void clocksource_select(void);
 
@@ -294,7 +320,12 @@ static void clocksource_watchdog(unsigned long data)
 			continue;
 
 		/* Check the deviation from the watchdog clocksource. */
-		if ((abs(cs_nsec - wd_nsec) > WATCHDOG_THRESHOLD)) {
+		if (WATCHDOG_TSC_IGNORE == watchdog_tsc_ignore) {
+			/* Ignore TSC as cpu freq changes are going on*/
+		} else if (WATCHDOG_TSC_IGNORE_ONCE == watchdog_tsc_ignore) {
+			/* Ignore once after cpu freq change */
+			watchdog_tsc_ignore = 0;
+		} else if (abs(cs_nsec - wd_nsec) > WATCHDOG_THRESHOLD) {
 			clocksource_unstable(cs, cs_nsec - wd_nsec);
 			continue;
 		}
@@ -677,6 +708,27 @@ static void clocksource_select_fallback(void)
 	return __clocksource_select(true);
 }
 
+#if defined(CONFIG_X86_EARLYMIC) && defined(CONFIG_MK1OM)
+void watchdog_tsc_disable(void)
+{
+	watchdog_tsc_ignore = WATCHDOG_TSC_IGNORE;
+}
+
+void watchdog_tsc_enable(void)
+{
+	watchdog_tsc_ignore = WATCHDOG_TSC_IGNORE_ONCE;
+}
+
+struct clocksource* get_curr_clocksource(void)
+{
+	return curr_clocksource;
+}
+#endif
+void clocksource_switch(char *override)
+{
+	strcpy(override_name, override);
+	clocksource_select();
+}
 #else /* !CONFIG_ARCH_USES_GETTIMEOFFSET */
 
 static inline void clocksource_select(void) { }
@@ -699,7 +751,10 @@ static int __init clocksource_done_booting(void)
 	/*
 	 * Run the watchdog first to eliminate unstable clock sources
 	 */
+	#if !defined(CONFIG_X86_MIC_EMULATION)
 	__clocksource_watchdog_kthread();
+	#endif
+
 	clocksource_select();
 	mutex_unlock(&clocksource_mutex);
 	return 0;
@@ -793,7 +848,9 @@ int __clocksource_register_scale(struct clocksource *cs, u32 scale, u32 freq)
 	/* Add clocksource to the clcoksource list */
 	mutex_lock(&clocksource_mutex);
 	clocksource_enqueue(cs);
+#if !defined(CONFIG_X86_MIC_EMULATION)
 	clocksource_enqueue_watchdog(cs);
+#endif
 	clocksource_select();
 	mutex_unlock(&clocksource_mutex);
 	return 0;
@@ -881,7 +938,9 @@ int clocksource_unregister(struct clocksource *cs)
 
 	mutex_lock(&clocksource_mutex);
 	if (!list_empty(&cs->list))
+	#if !defined(CONFIG_X86_MIC_EMULATION)
 		ret = clocksource_unbind(cs);
+	#endif
 	mutex_unlock(&clocksource_mutex);
 	return ret;
 }
