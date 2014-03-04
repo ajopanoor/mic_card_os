@@ -177,8 +177,13 @@ ENTRY(secondary_startup_64)
 	movq	$(init_level4_pgt - __START_KERNEL_map), %rax
 1:
 
+#ifdef CONFIG_X86_EARLYMIC
+	/* no support for global bit */
+	movl	$(X86_CR4_PAE), %ecx
+#else
 	/* Enable PAE mode and PGE */
 	movl	$(X86_CR4_PAE | X86_CR4_PGE), %ecx
+#endif
 	movq	%rcx, %cr4
 
 	/* Setup early boot stage 4 level pagetables. */

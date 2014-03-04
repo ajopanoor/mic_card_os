@@ -54,9 +54,11 @@ ENTRY(trampoline_start)
 	# Setup stack
 	movl	$rm_stack_end, %esp
 
+#ifndef CONFIG_X86_EARLYMIC
 	call	verify_cpu		# Verify the cpu supports long mode
 	testl   %eax, %eax		# Check for return code
 	jnz	no_longmode
+#endif
 
 	/*
 	 * GDT tables in non default location kernel can be beyond 16MB and

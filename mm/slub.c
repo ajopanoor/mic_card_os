@@ -38,6 +38,13 @@
 
 #include "internal.h"
 
+// FIXME - move this to a better place like cmpxchg.h
+#ifdef CONFIG_X86_EARLYMIC
+asm (".macro cmpxchg16b arg\n\
+	      .endm\n");
+#endif
+
+
 /*
  * Lock order:
  *   1. slab_mutex (Global Mutex)

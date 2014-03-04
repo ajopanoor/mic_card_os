@@ -1126,7 +1126,9 @@ void syscall_init(void)
 	 */
 	wrmsrl(MSR_STAR,  ((u64)__USER32_CS)<<48  | ((u64)__KERNEL_CS)<<32);
 	wrmsrl(MSR_LSTAR, system_call);
+#ifndef CONFIG_X86_EARLYMIC
 	wrmsrl(MSR_CSTAR, ignore_sysret);
+#endif
 
 #ifdef CONFIG_IA32_EMULATION
 	syscall32_cpu_init();
@@ -1369,6 +1371,11 @@ void cpu_init(void)
 	dbg_restore_debug_regs();
 
 	fpu_init();
+#if 0 /* we don't know what to do */
+	xsave_init();
+
+	BUG_ON(!xstate_size);
+#endif
 }
 #endif
 
