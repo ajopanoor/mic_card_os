@@ -319,6 +319,10 @@ dotraplinkage void __kprobes notrace do_int3(struct pt_regs *regs, long error_co
 {
 	enum ctx_state prev_state;
 
+#ifdef CONFIG_KDB
+	if (kdb(KDB_REASON_BREAK, error_code, regs))
+		return;
+#endif
 #ifdef CONFIG_DYNAMIC_FTRACE
 	/*
 	 * ftrace must be first, everything else may cause a recursive crash.
@@ -433,8 +437,10 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 	if ((dr6 & DR_STEP) && kmemcheck_trap(regs))
 		goto exit;
 
+#ifndef CONFIG_KDB
 	/* DR6 may or may not be cleared by the CPU */
 	set_debugreg(0, 6);
+#endif
 
 	/*
 	 * The processor cleared BTF, so don't mark that we need it set.
@@ -443,6 +449,14 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 
 	/* Store the virtualized DR6 value */
 	tsk->thread.debugreg6 = dr6;
+
+#ifdef  CONFIG_KDB
+	if (kdb(KDB_REASON_DEBUG, error_code, regs))
+		return;
+
+	/* DR6 may or may not be cleared by the CPU */
+	set_debugreg(0, 6);
+#endif  /* CONFIG_KDB */
 
 	if (notify_die(DIE_DEBUG, "debug", regs, (long)&dr6, error_code,
 							SIGTRAP) == NOTIFY_STOP)

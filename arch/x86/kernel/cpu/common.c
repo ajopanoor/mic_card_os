@@ -1,3 +1,27 @@
+/* * Copyright (c) Intel Corporation (2011).
+*
+* Disclaimer: The codes contained in these modules may be specific to the
+* Intel Software Development Platform codenamed: Knights Ferry, and the 
+* Intel product codenamed: Knights Corner, and are not backward compatible 
+* with other Intel products. Additionally, Intel will NOT support the codes 
+* or instruction set in future products.
+*
+* Intel offers no warranty of any kind regarding the code.  This code is
+* licensed on an "AS IS" basis and Intel is not obligated to provide any support,
+* assistance, installation, training, or other services of any kind.  Intel is 
+* also not obligated to provide any updates, enhancements or extensions.  Intel 
+* specifically disclaims any warranty of merchantability, non-infringement, 
+* fitness for any particular purpose, and any other warranty.
+*
+* Further, Intel disclaims all liability of any kind, including but not
+* limited to liability for infringement of any proprietary rights, relating
+* to the use of the code, even if Intel is notified of the possibility of
+* such liability.  Except as expressly stated in an Intel license agreement
+* provided with this code and agreed upon with Intel, no license, express
+* or implied, by estoppel or otherwise, to any intellectual property rights
+* is granted herein.
+*/
+
 #include <linux/bootmem.h>
 #include <linux/linkage.h>
 #include <linux/bitops.h>
@@ -1360,6 +1384,18 @@ void cpu_init(void)
 	load_TR_desc();
 	load_LDT(&init_mm.context);
 
+#ifdef CONFIG_KGDB
+	/*
+	 * If the kgdb is connected no debug regs should be altered.  This
+	 * is only applicable when KGDB and a KGDB I/O module are built
+	 * into the kernel and you are using early debugging with
+	 * kgdbwait. KGDB will control the kernel HW breakpoint registers.
+	 */
+	if (kgdb_connected && arch_kgdb_ops.correct_hw_break)
+		arch_kgdb_ops.correct_hw_break();
+	else
+#endif
+
 	t->x86_tss.io_bitmap_base = offsetof(struct tss_struct, io_bitmap);
 
 #ifdef CONFIG_DOUBLEFAULT
@@ -1367,7 +1403,12 @@ void cpu_init(void)
 	__set_tss_desc(cpu, GDT_ENTRY_DOUBLEFAULT_TSS, &doublefault_tss);
 #endif
 
+#ifndef CONFIG_X86_EARLYMIC
+	/* rm: We found that on emulation, this was hampering our ability to set HW breakpoints
+	 * via ITP. So don't do it for now. What's so bad about leaving it this way?
+	 */
 	clear_all_debug_regs();
+#endif
 	dbg_restore_debug_regs();
 
 	fpu_init();
