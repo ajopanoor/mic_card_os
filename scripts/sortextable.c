@@ -269,6 +269,8 @@ do_file(char const *const fname)
 		break;
 	case EM_386:
 	case EM_X86_64:
+	case 180:  //EM_L1OM:
+	case 181:  //EM_K1OM:
 	case EM_S390:
 		custom_sort = sort_relative_table;
 		break;

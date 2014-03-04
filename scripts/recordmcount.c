@@ -366,6 +366,10 @@ do_file(char const *const fname)
 		reltype = R_X86_64_64;
 		mcount_adjust_64 = -1;
 		break;
+	case 180: // EM_L1OM:
+	case 181: // EM_K1OM:
+		reltype = R_X86_64_64;                break;
+		break;
 	}  /* end switch */
 
 	switch (ehdr->e_ident[EI_CLASS]) {
