@@ -205,6 +205,15 @@ struct _ymmh_state {
 	__u32 ymmh_space[64];
 };
 
+#ifdef CONFIG_X86_EARLYMIC
+struct _vpustate {
+	__u32 vector_space[512];	/* Vector Registers */
+	__u16 k[8];			/* Mask Registers */
+	__u32 vxcsr;
+	__u32 reserved2[27];
+};
+#endif
+
 /*
  * Extended state pointed by the fpstate pointer in the sigcontext.
  * In addition to the fpstate, information encoded in the xstate_hdr
@@ -214,7 +223,11 @@ struct _ymmh_state {
 struct _xstate {
 	struct _fpstate fpstate;
 	struct _xsave_hdr xstate_hdr;
+#ifdef CONFIG_X86_EARLYMIC
+	struct _vpustate vpustate;
+#else
 	struct _ymmh_state ymmh;
+#endif
 	/* new processor state extensions go here */
 };
 

@@ -1,3 +1,27 @@
+/* * Copyright (c) Intel Corporation (2011).
+*
+* Disclaimer: The codes contained in these modules may be specific to the
+* Intel Software Development Platform codenamed: Knights Ferry, and the 
+* Intel product codenamed: Knights Corner, and are not backward compatible 
+* with other Intel products. Additionally, Intel will NOT support the codes 
+* or instruction set in future products.
+*
+* Intel offers no warranty of any kind regarding the code.  This code is
+* licensed on an "AS IS" basis and Intel is not obligated to provide any support,
+* assistance, installation, training, or other services of any kind.  Intel is 
+* also not obligated to provide any updates, enhancements or extensions.  Intel 
+* specifically disclaims any warranty of merchantability, non-infringement, 
+* fitness for any particular purpose, and any other warranty.
+*
+* Further, Intel disclaims all liability of any kind, including but not
+* limited to liability for infringement of any proprietary rights, relating
+* to the use of the code, even if Intel is notified of the possibility of
+* such liability.  Except as expressly stated in an Intel license agreement
+* provided with this code and agreed upon with Intel, no license, express
+* or implied, by estoppel or otherwise, to any intellectual property rights
+* is granted herein.
+*/
+
 /*
  * Copyright (C) 1994 Linus Torvalds
  *
@@ -54,6 +78,9 @@ extern user_regset_get_fn fpregs_get, xfpregs_get, fpregs_soft_get,
 				xstateregs_get;
 extern user_regset_set_fn fpregs_set, xfpregs_set, fpregs_soft_set,
 				 xstateregs_set;
+#ifdef CONFIG_MK1OM
+void restore_mask_regs(void);
+#endif
 
 /*
  * xstateregs_active == fpregs_active. Please refer to the comment
@@ -97,6 +124,9 @@ static __always_inline __pure bool use_xsaveopt(void)
 
 static __always_inline __pure bool use_xsave(void)
 {
+#ifdef CONFIG_X86_EARLYMIC
+	return 1;
+#endif
 	return static_cpu_has(X86_FEATURE_XSAVE);
 }
 
@@ -170,6 +200,10 @@ static inline int fxsave_user(struct i387_fxsave_struct __user *fx)
 
 static inline int fxrstor_checking(struct i387_fxsave_struct *fx)
 {
+#ifdef CONFIG_MK1OM
+	// KNC errata:  MXCSR.DUE (bit 21) must be 1.  Force it on here.
+	fx->mxcsr |= 0x200000;
+#endif
 	if (config_enabled(CONFIG_X86_32))
 		return check_insn(fxrstor %[fx], "=m" (*fx), [fx] "m" (*fx));
 	else if (config_enabled(CONFIG_AS_FXSAVEQ))
@@ -275,8 +309,22 @@ static inline int fpu_save_init(struct fpu *fpu)
 
 static inline int __save_init_fpu(struct task_struct *tsk)
 {
+#ifdef CONFIG_X86_EARLYMIC
+	fpu_fxsave(&tsk->thread.fpu);
+	save_init_vpu(&tsk->thread.fpu.state->xsave);
+#else
 	return fpu_save_init(&tsk->thread.fpu);
+#endif
 }
+
+#ifdef CONFIG_MK1OM
+static inline int mic_restore_mask_regs(struct task_struct *tsk)
+{
+       struct xsave_struct *xstate = &tsk->thread.fpu.state->xsave;
+
+       return _mic_restore_mask_regs(xstate);
+}
+#endif
 
 static inline int fpu_restore_checking(struct fpu *fpu)
 {
@@ -296,11 +344,12 @@ static inline int restore_fpu_checking(struct task_struct *tsk)
 	if (unlikely(static_cpu_has(X86_FEATURE_FXSAVE_LEAK))) {
 		asm volatile(
 			"fnclex\n\t"
+#ifndef CONFIG_X86_EARLYMIC
 			"emms\n\t"
+#endif
 			"fildl %P[addr]"	/* set F?P to defined value */
 			: : [addr] "m" (tsk->thread.fpu.has_fpu));
 	}
-
 	return fpu_restore_checking(&tsk->thread.fpu);
 }
 
@@ -424,8 +473,12 @@ static inline fpu_switch_t switch_fpu_prepare(struct task_struct *old, struct ta
 	 * If the task has used the math, pre-load the FPU on xsave processors
 	 * or if the past 5 consecutive context-switches used math.
 	 */
+#ifdef CONFIG_ML1OM
+	fpu.preload = tsk_used_math(new);
+#else
 	fpu.preload = tsk_used_math(new) && (use_eager_fpu() ||
 					     new->thread.fpu_counter > 5);
+#endif
 	if (__thread_has_fpu(old)) {
 		if (!__save_init_fpu(old))
 			cpu = ~0;

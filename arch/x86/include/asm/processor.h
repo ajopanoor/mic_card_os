@@ -401,10 +401,23 @@ struct xsave_hdr_struct {
 	u64 reserved2[5];
 } __attribute__((packed));
 
+#ifdef CONFIG_X86_EARLYMIC
+struct vpustate_struct {
+	u32 vector_space[512];	/* Vector Registers (32x64 bytes) */
+	u16 k[8];		/* Mask Registers */
+	u32 vxcsr;
+	u32 reserved2[27];
+};
+#endif
+
 struct xsave_struct {
 	struct i387_fxsave_struct i387;
 	struct xsave_hdr_struct xsave_hdr;
+#ifdef CONFIG_X86_EARLYMIC
+	struct vpustate_struct vpu;
+#else
 	struct ymmh_struct ymmh;
+#endif
 	/* new processor state extensions will go here */
 } __attribute__ ((packed, aligned (64)));
 
