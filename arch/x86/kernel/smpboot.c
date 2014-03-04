@@ -1069,6 +1069,7 @@ static void __init smp_cpu_index_default(void)
 	}
 }
 
+
 /*
  * Prepare for SMP bootup.  The MP table or ACPI has been read
  * earlier.  Just do some sanity checking here and enable APIC mode.
@@ -1134,6 +1135,14 @@ void __init native_smp_prepare_cpus(unsigned int max_cpus)
 
 	if (apic->setup_portio_remap)
 		apic->setup_portio_remap();
+
+#ifdef CONFIG_X86_EARLYMIC
+extern void mic_construct_default_ioirq_mptable(int mpc_default_type) __init;
+extern void mic_smpt_init() __init;
+
+ 	mic_construct_default_ioirq_mptable(0);
+ 	mic_smpt_init();
+#endif
 
 	smpboot_setup_io_apic();
 	/*
