@@ -1,0 +1,121 @@
+#!/bin/sh -e
+export BUILD_CC="gcc"
+export prefix="/usr"
+export CMDLINE_CONSOLE="console=ttyS0"
+export datadir="/usr/share"
+export localstatedir="/var"
+export BUILD_CXX="g++"
+export bindir="/usr/bin"
+export TARGET_CXXFLAGS="-O2 -pipe -g -feliminate-unused-debug-types -fpermissive"
+export includedir="/usr/include"
+export USER="caz"
+export BUILD_LD="ld"
+export oldincludedir="/usr/include"
+export BUILD_CCLD="gcc"
+export CC="k1om-mpss-linux-gcc    -m64  --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner"
+export MPSS_VERSION="2.6.38+mpss3.3+git3+f89a54b756228bef6cb961fb3b7aca1f7769ffae-0.1"
+export RANLIB="k1om-mpss-linux-ranlib"
+export CXX="k1om-mpss-linux-g++    -m64  --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner"
+export OS="linux"
+export BUILD_NM="nm"
+export BUILD_RANLIB="ranlib"
+export mandir="/usr/share/man"
+export PKG_CONFIG_SYSROOT_DIR="/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner"
+export servicedir="/srv"
+export LD="k1om-mpss-linux-ld --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner"
+export LC_ALL="C"
+export sysconfdir="/etc"
+export CCLD="k1om-mpss-linux-gcc    -m64  --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner"
+export base_bindir="/bin"
+export PKG_CONFIG_LIBDIR="/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner//usr/lib64/pkgconfig"
+export sbindir="/usr/sbin"
+export CFLAGS="-O2 -pipe -g -feliminate-unused-debug-types"
+export TARGET_LDFLAGS="-Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed"
+export PKG_CONFIG_DISABLE_UNINSTALLED="yes"
+export PSEUDO_DISABLED="1"
+export BUILD_F77="g77"
+export PATCH_GET="0"
+export CXXFLAGS="-O2 -pipe -g -feliminate-unused-debug-types -fpermissive -fvisibility-inlines-hidden"
+export NM="k1om-mpss-linux-nm"
+export F77="k1om-mpss-linux-g77    -m64  --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner"
+export LDFLAGS="-Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed"
+export MAKE="make"
+unset TARGET_ARCH
+export CCACHE_DIR="/mnt/OsNoise/mpss/tmp/tmp/ccache/knightscorner-mpss-linux/linux-mpss"
+export OBJCOPY="k1om-mpss-linux-objcopy"
+export BUILD_CPP="cpp"
+export BUILD_CFLAGS="-isystem/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/usr/include -O2 -pipe"
+export docdir="/usr/share/doc"
+export infodir="/usr/share/info"
+export ARCH="k1om"
+export TERM="xterm"
+export base_sbindir="/sbin"
+export systemd_unitdir="/lib64/systemd"
+export PKG_CONFIG_PATH="/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner//usr/lib64/pkgconfig:/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner/usr/share/pkgconfig"
+export STRIP="k1om-mpss-linux-strip"
+export AS="k1om-mpss-linux-as"
+export AR="k1om-mpss-linux-ar"
+export BUILD_CPPFLAGS="-isystem/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/usr/include"
+export CPP="k1om-mpss-linux-gcc -E --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner    -m64"
+export libexecdir="/usr/libexec"
+export BUILD_CXXFLAGS="-isystem/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/usr/include -O2 -pipe -fpermissive"
+export HOME="/home/caz"
+export MPSS_COMMIT="f89a54b756228bef6cb961fb3b7aca1f7769ffae"
+export exec_prefix="/usr"
+export base_libdir="/lib64"
+export LOGNAME="caz"
+export PATH="/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/usr/bin/k1om-mpss-linux:/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner/usr/bin/crossscripts:/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/usr/sbin:/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/usr/bin:/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/sbin:/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux//bin:/mnt/OsNoise/mpss/repos/bb/poky/scripts:/mnt/OsNoise/mpss/repos/bb/poky/bitbake/bin/:/usr/lib64/qt-3.3/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/home/caz/bin:/usr/sbin:/sbin:/mnt/OsNoise/mpss/repos/bb/poky/scripts"
+export TARGET_CFLAGS="-O2 -pipe -g -feliminate-unused-debug-types"
+unset MACHINE
+export BUILD_AR="ar"
+export BUILD_AS="as"
+export sharedstatedir="/com"
+export OBJDUMP="k1om-mpss-linux-objdump"
+export CROSS_COMPILE="k1om-mpss-linux-"
+unset DISTRO
+export PKG_CONFIG_DIR="/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner//usr/lib64/pkgconfig"
+export libdir="/usr/lib64"
+export SHELL="/bin/bash"
+export BUILD_LDFLAGS="-L/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/usr/lib -L/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/lib -Wl,-rpath-link,/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/usr/lib -Wl,-rpath-link,/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/lib -Wl,-rpath,/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/usr/lib -Wl,-rpath,/mnt/OsNoise/mpss/tmp/tmp/sysroots/x86_64-linux/lib -Wl,-O1"
+export UBOOT_ARCH="k1om"
+export BUILD_STRIP="strip"
+do_compile() {
+	kernel_do_compile
+
+}
+
+kernel_do_compile() {
+	unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS MACHINE
+	oe_runmake include/generated/uapi/linux/version.h CC="k1om-mpss-linux-gcc  --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner" LD="k1om-mpss-linux-ld  --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner"
+	oe_runmake bzImage  CC="k1om-mpss-linux-gcc  --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner" LD="k1om-mpss-linux-ld  --sysroot=/mnt/OsNoise/mpss/tmp/tmp/sysroots/knightscorner"
+	if test "bzImage.gz" = "bzImage"; then
+		gzip -9c < "bzImage" > "arch/k1om/boot/bzImage"
+	fi
+
+}
+
+oe_runmake() {
+	if [ x"$MAKE" = x ]; then MAKE=make; fi
+	bbnote make -j 16  "$@"
+	make -j 16  "$@" || die "oe_runmake failed"
+
+}
+
+die() {
+	bbfatal "$*"
+
+}
+
+bbnote() {
+	echo "NOTE: $*"
+
+}
+
+bbfatal() {
+	echo "ERROR: $*"
+	exit 1
+
+}
+
+cd /mnt/OsNoise/mpss/tmp/tmp/work/knightscorner-mpss-linux/linux-mpss-2.6.38+mpss3.3+git3+f89a54b756228bef6cb961fb3b7aca1f7769ffae-0.1/git
+do_compile
