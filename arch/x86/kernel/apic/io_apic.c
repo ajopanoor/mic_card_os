@@ -3119,8 +3119,6 @@ void arch_setup_sbox_irqs(unsigned int *irqs, int n)
 	unsigned int irq_want = MIC_NUM_IOAPIC_ENTRIES + 1;
 	int i;
 
-	BUG_ON(irq_remapping_enabled);
-
 	for (i = 0; i < n; i++) {
 		irq = create_irq_nr(irq_want, node);
 		BUG_ON(0 == irq);

@@ -260,7 +260,7 @@ void fpu_finit(struct fpu *fpu)
 #endif
 #endif
 		if (cpu_has_xmm)
-			fx->mxcsr = MXCSR_DEFAULT;
+			fpu->state->fxsave.mxcsr = MXCSR_DEFAULT;
 	} else {
 		struct i387_fsave_struct *fp = &fpu->state->fsave;
 		memset(fp, 0, xstate_size);

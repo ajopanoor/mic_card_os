@@ -1138,7 +1138,7 @@ void __init native_smp_prepare_cpus(unsigned int max_cpus)
 
 #ifdef CONFIG_X86_EARLYMIC
 extern void mic_construct_default_ioirq_mptable(int mpc_default_type) __init;
-extern void mic_smpt_init() __init;
+extern void mic_smpt_init(void) __init;
 
  	mic_construct_default_ioirq_mptable(0);
  	mic_smpt_init();
