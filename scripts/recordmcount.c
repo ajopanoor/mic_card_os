@@ -368,7 +368,8 @@ do_file(char const *const fname)
 		break;
 	case 180: // EM_L1OM:
 	case 181: // EM_K1OM:
-		reltype = R_X86_64_64;                break;
+		reltype = R_X86_64_64;         
+		mcount_adjust_64 = -1;
 		break;
 	}  /* end switch */
 
