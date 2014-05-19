@@ -376,11 +376,11 @@ void __init mic_sbox_md_init(void)
 #ifdef	CONFIG_MK1OM
 static void mic_timer_init_common(void)
 {
-#if defined(CONFIG_X86_MIC_EMULATION) || defined(CONFIG_MIC_PM)
-	if (mic_etc_enabled)
+//#if defined(CONFIG_X86_MIC_EMULATION) || defined(CONFIG_MIC_PM)
+	if (1) /* I need a high-resolution clocksource for full hz operation */
 		mic_timer_init();
 	else
-#endif
+//#endif
 		x86_init_noop();
 }
 #endif
