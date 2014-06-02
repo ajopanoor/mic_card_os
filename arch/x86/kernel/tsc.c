@@ -637,6 +637,8 @@ static void set_cyc2ns_scale(unsigned long cpu_khz, int cpu)
 					     (1UL << CYC2NS_SCALE_FACTOR));
 	}
 
+	printk("cyc2ns %llu, cyc2ns_offset %llu \n", *scale, *offset);
+
 	sched_clock_idle_wakeup_event(0);
 	local_irq_restore(flags);
 }
