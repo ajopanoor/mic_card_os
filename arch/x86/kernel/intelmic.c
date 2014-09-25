@@ -51,6 +51,7 @@
 #include <asm/i8259.h>
 #include <asm/reboot.h>
 #include <asm/mic_def.h>
+#include <asm/mce.h>
 
 #ifdef CONFIG_X86_MIC_EMULATION
 #define MIC_CORE_FREQ 200000UL /* 200 KHz for emulation */
@@ -74,10 +75,14 @@
 #define BUILD_SMPT(NO_SNOOP, HOST_ADDR)  \
 	(uint32_t)(((((HOST_ADDR)<< 2) & (~0x03)) | ((NO_SNOOP) & (0x01))))
 
-#define SBOX_K1OM_SDBIC0		0x0000CC90
+#ifdef CONFIG_MK1OM
+#define SBOX_SDBIC1		0x0000CC94
+#else
+#define SBOX_SDBIC1		0x00009034
+#endif
 
-/* vnet/mic_shutdown/hvc/virtio */
-unsigned int sbox_irqs[8];
+/* vnet/mic_shutdown/hvc/virtio/pc35_wakeup */
+unsigned int sbox_irqs[5];
 
 void __iomem *mic_sbox_mmio_va;
 EXPORT_SYMBOL(mic_sbox_mmio_va);
@@ -376,7 +381,8 @@ void __init mic_sbox_md_init(void)
 #ifdef	CONFIG_MK1OM
 static void mic_timer_init_common(void)
 {
-//#if defined(CONFIG_X86_MIC_EMULATION) || defined(CONFIG_MIC_PM)
+//#ifndef CONFIG_X86_MIC_EMULATION
+//	if (mic_etc_enabled)
 	if (1) /* I need a high-resolution clocksource for full hz operation */
 		mic_timer_init();
 	else
@@ -385,10 +391,81 @@ static void mic_timer_init_common(void)
 }
 #endif
 
-static int __init mic_setup_isr(void)
+/*------------------------------------------------------------------------------
+ *  FUNCTION: mic_shutdown
+ *
+ *  DESCRIPTION: Notifies the host about a MIC shutdown/poweroff/restart via
+ *  writing to a doorbell register which interrupts the host.
+ *
+ *  PARAMETERS: system state.
+ *
+ *  RETURNS: none.
+*------------------------------------------------------------------------------*/
+void mic_shutdown(uint16_t state)
 {
+	uint32_t db_reg;
+#define SBOX_SDBIC1_DBREQ_BIT   0x80000000
+
+	db_reg = state | SBOX_SDBIC1_DBREQ_BIT;
+	writel(db_reg, mic_sbox_mmio_va + SBOX_SDBIC1);
+	printk(KERN_ALERT "%s: system state %d dbreg 0x%x\n",
+			__func__, state, db_reg);
+}
+
+void _mic_shutdown(void)
+{
+	native_machine_shutdown();
+	mic_shutdown(system_state);
+}
+
+#ifdef CONFIG_KEXEC
+void _mic_crash_shutdown(struct pt_regs *regs)
+{
+	native_machine_crash_shutdown(regs);
+	/*
+	 * Only alert host outside of MC handling context
+	 */
+	if (! atomic_read(&mce_entry))
+		mic_shutdown(0xdead);
+	/*
+	 * Halt since MIC does not want to load crash kernel itself because
+	 * host kernel will capture the kernel core dump.
+	 */
+	while(1)
+		halt();
+}
+#endif
+
+/*------------------------------------------------------------------------------
+ *  FUNCTION: mic_shutdown_isr
+ *
+ *  DESCRIPTION: This interrupt service routine is executed when the host
+ *  triggers an interrupt telling the uOS that an orderly shutdown should be
+ *  performed by writing to SBOX RDMASR0.
+*------------------------------------------------------------------------------*/
+static irqreturn_t mic_shutdown_isr(int irq, void *unused)
+{
+	orderly_poweroff(true);
+	return IRQ_HANDLED;
+}
+
+/*------------------------------------------------------------------------------
+ *  FUNCTION: mic_setup_isr
+ *
+ *  DESCRIPTION: This function registers an interrupts for regular host
+ *  interrupts and host shutdown interrupt.
+ *  Host requests an orderly uOS shutdown by writing to SBOX APICICR1.
+*------------------------------------------------------------------------------*/
+void __init mic_setup_isr(void)
+{
+	int ret;
+	int i;
 	arch_setup_sbox_irqs(sbox_irqs, ARRAY_SIZE(sbox_irqs));
-	return 0;
+	if (ret = request_irq(sbox_irqs[1], mic_shutdown_isr, IRQF_DISABLED, "Shutdown", NULL)) {
+		printk("ret value=%d, irq=%d\n", ret, sbox_irqs[1]);
+		BUG_ON(1);
+	}
+	printk("irq for shutdown isr %d\n", sbox_irqs[1]);
 }
 late_initcall(mic_setup_isr);
 
@@ -419,6 +496,10 @@ void __init x86_mic_early_setup(void)
 	x86_platform.get_wallclock = intel_mic_get_wallclock;
 	x86_platform.set_wallclock = intel_mic_set_wallclock;
 
+	machine_ops.shutdown  = _mic_shutdown;
+#ifdef CONFIG_KEXEC
+	machine_ops.crash_shutdown = _mic_crash_shutdown;
+#endif
 	legacy_pic = &null_legacy_pic;
 	mic_sbox_mmio_va = NULL;
 	no_sync_cmos_clock = 1;
@@ -515,5 +596,24 @@ void  __init mic_construct_default_ioirq_mptable(int mpc_default_type)
 		intsrc.srcbusirq = i;
 		intsrc.dstirq = i;
 		MP_intsrc_info(&intsrc);
+	}
+}
+
+void save_APICICR_setup(uint64_t *apicicr)
+{
+	int i;
+	for (i = 0; i < 8; i++) {
+		apicicr[i] = readl(mic_sbox_mmio_va + SBOX_APICICR0 + i * 8 + 4);
+		apicicr[i] <<= 32;
+		apicicr[i] |= readl(mic_sbox_mmio_va + SBOX_APICICR0 + i * 8);
+	}
+}
+
+void restore_APICICR_setup(uint64_t *apicicr)
+{
+	int i;
+	for (i = 0; i < 8; i++) {
+		writel(apicicr[i], mic_sbox_mmio_va + SBOX_APICICR0 + i * 8);
+		writel((apicicr[i] >> 32), mic_sbox_mmio_va + SBOX_APICICR0 + i * 8 + 4);
 	}
 }
