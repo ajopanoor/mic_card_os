@@ -167,7 +167,7 @@ static void mic_reset_inform_host(struct virtio_device *vdev)
 		msleep(100);
 	};
 
-	dev_dbg(mic_dev(mvdev), "%s: retry: %d\n", __func__, retry);
+	dev_info(mic_dev(mvdev), "%s: retry: %d\n", __func__, retry);
 
 	/* Reset status to 0 in case we timed out */
 	iowrite8(0, &mvdev->desc->status);
@@ -177,7 +177,7 @@ static void mic_reset(struct virtio_device *vdev)
 {
 	struct mic_vdev *mvdev = to_micvdev(vdev);
 
-	dev_dbg(mic_dev(mvdev), "%s: virtio id %d\n",
+	dev_info(mic_dev(mvdev), "%s: virtio id %d\n",
 		__func__, vdev->id.device);
 
 	mic_reset_inform_host(vdev);
@@ -212,7 +212,7 @@ static void mic_del_vqs(struct virtio_device *vdev)
 	struct virtqueue *vq, *n;
 	int idx = 0;
 
-	dev_dbg(mic_dev(mvdev), "%s\n", __func__);
+	dev_info(mic_dev(mvdev), "%s\n", __func__);
 
 	list_for_each_entry_safe(vq, n, &vdev->vqs, list)
 		mic_del_vq(vq, idx++);
@@ -318,7 +318,7 @@ static int mic_find_vqs(struct virtio_device *vdev, unsigned nvqs,
 		return -ENOENT;
 
 	for (i = 0; i < nvqs; ++i) {
-		dev_dbg(mic_dev(mvdev), "%s: %d: %s\n",
+		dev_info(mic_dev(mvdev), "%s: %d: %s\n",
 			__func__, i, names[i]);
 		vqs[i] = mic_find_vq(vdev, i, callbacks[i], names[i]);
 		if (IS_ERR(vqs[i])) {
@@ -339,7 +339,7 @@ static int mic_find_vqs(struct virtio_device *vdev, unsigned nvqs,
 		msleep(100);
 	};
 
-	dev_dbg(mic_dev(mvdev), "%s: retry: %d\n", __func__, retry);
+	dev_info(mic_dev(mvdev), "%s: retry: %d\n", __func__, retry);
 	if (!retry) {
 		err = -ENODEV;
 		goto error;
@@ -433,7 +433,7 @@ static int mic_add_device(struct mic_device_desc __iomem *d,
 		goto free_irq;
 	}
 	iowrite64((u64)mvdev, &mvdev->dc->vdev);
-	dev_dbg(mic_dev(mvdev), "%s: registered mic device %u type %u mvdev %p\n",
+	dev_info(mic_dev(mvdev), "%s: registered mic device %u type %u mvdev %p\n",
 		__func__, offset, type, mvdev);
 
 	return 0;
@@ -467,7 +467,7 @@ static void mic_handle_config_change(struct mic_device_desc __iomem *d,
 	if (ioread8(&dc->config_change) != MIC_VIRTIO_PARAM_CONFIG_CHANGED)
 		return;
 
-	dev_dbg(mdrv->dev, "%s %d\n", __func__, __LINE__);
+	dev_info(mdrv->dev, "%s %d\n", __func__, __LINE__);
 	drv = container_of(mvdev->vdev.dev.driver,
 				struct virtio_driver, driver);
 	if (drv->config_changed)
@@ -489,7 +489,7 @@ static int mic_remove_device(struct mic_device_desc __iomem *d,
 	int ret = -1;
 
 	if (ioread8(&dc->config_change) == MIC_VIRTIO_PARAM_DEV_REMOVE) {
-		dev_dbg(mdrv->dev,
+		dev_info(mdrv->dev,
 			"%s %d config_change %d type %d mvdev %p\n",
 			__func__, __LINE__,
 			ioread8(&dc->config_change), ioread8(&d->type), mvdev);
@@ -502,7 +502,7 @@ static int mic_remove_device(struct mic_device_desc __iomem *d,
 			wait_for_completion(&mvdev->reset_done);
 		kfree(mvdev);
 		iowrite8(1, &dc->guest_ack);
-		dev_dbg(mdrv->dev, "%s %d guest_ack %d\n",
+		dev_info(mdrv->dev, "%s %d guest_ack %d\n",
 			__func__, __LINE__, ioread8(&dc->guest_ack));
 		ret = 0;
 	}
@@ -560,7 +560,7 @@ static void mic_scan_devices(struct mic_driver *mdrv, bool remove)
 		}
 
 		/* new device */
-		dev_dbg(mdrv->dev, "%s %d Adding new virtio device %p\n",
+		dev_info(mdrv->dev, "%s %d Adding new virtio device %p\n",
 			__func__, __LINE__, d);
 		if (!remove)
 			mic_add_device(d, i, mdrv);
@@ -586,7 +586,7 @@ mic_extint_handler(int irq, void *data)
 {
 	struct mic_driver *mdrv = (struct mic_driver *)data;
 
-	dev_dbg(mdrv->dev, "%s %d hotplug work\n",
+	dev_info(mdrv->dev, "%s %d hotplug work\n",
 		__func__, __LINE__);
 	mic_ack_interrupt(&mdrv->mdev);
 	schedule_work(&mdrv->hotplug_work);

@@ -461,11 +461,13 @@ void __init mic_setup_isr(void)
 	int ret;
 	int i;
 	arch_setup_sbox_irqs(sbox_irqs, ARRAY_SIZE(sbox_irqs));
+#if 0
 	if (ret = request_irq(sbox_irqs[1], mic_shutdown_isr, IRQF_DISABLED, "Shutdown", NULL)) {
 		printk("ret value=%d, irq=%d\n", ret, sbox_irqs[1]);
 		BUG_ON(1);
 	}
 	printk("irq for shutdown isr %d\n", sbox_irqs[1]);
+#endif
 }
 late_initcall(mic_setup_isr);
 
