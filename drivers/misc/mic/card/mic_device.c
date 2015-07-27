@@ -33,6 +33,7 @@
 
 #include <linux/mic_common.h>
 #include "../common/mic_dev.h"
+#include "../common/mic_proc.h"
 #include "mic_device.h"
 #include "mic_virtio.h"
 
@@ -397,6 +398,12 @@ int __init mic_driver_init(struct mic_driver *mdrv)
 	}
 	mic_create_card_debug_dir(mdrv);
 	atomic_notifier_chain_register(&panic_notifier_list, &mic_panic);
+	rc = mic_proc_init(mdrv);
+	if (rc) {
+		dev_err(mdrv->dev,"%s:mic_proc_init failed\n", __func__);
+		//FIXME: fail loading the driver and do cleanup
+		rc = 0;
+	}
 done:
 	return rc;
 device_uninit:

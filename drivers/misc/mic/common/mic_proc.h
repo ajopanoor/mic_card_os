@@ -204,6 +204,7 @@ static inline struct rproc_vring *vringh_to_rvring(struct vringh *vrh)
 #ifndef INTEL_MIC_CARD
 int mic_proc_init(struct mic_device *mdev);
 #else
+#include "../card/mic_device.h"
 int mic_proc_init(struct mic_driver *mdrv);
 #endif
 

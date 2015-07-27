@@ -58,6 +58,7 @@ config INTEL_MIC_CARD
 	tristate "Intel MIC Card Driver"
 	depends on 64BIT && X86 && INTEL_MIC_BUS && SCIF_BUS
 	select VIRTIO
+	select VHOST_RING
 	help
 	  This enables card driver support for the Intel Many Integrated
 	  Core (MIC) device family. The card driver communicates shutdown/

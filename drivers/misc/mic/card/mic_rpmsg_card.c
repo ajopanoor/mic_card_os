@@ -83,7 +83,7 @@ static void mic_proc_virtio_reset(struct virtio_device *vdev)
 }
 
 /* provide the vdev features as retrieved from the firmware */
-static u64 mic_proc_virtio_get_features(struct virtio_device *vdev)
+static u32 mic_proc_virtio_get_features(struct virtio_device *vdev)
 {
 	struct rproc_vdev *lvdev = vdev_to_rvdev(vdev);
 	struct mic_proc *mic_proc = (struct mic_proc *)lvdev->rproc;
@@ -95,7 +95,7 @@ static u64 mic_proc_virtio_get_features(struct virtio_device *vdev)
 	return rsc->gfeatures;
 }
 
-static int mic_proc_virtio_finalize_features(struct virtio_device *vdev)
+static void mic_proc_virtio_finalize_features(struct virtio_device *vdev)
 {
 	struct rproc_vdev *lvdev = vdev_to_rvdev(vdev);
 	struct mic_proc *mic_proc = (struct mic_proc *)lvdev->rproc;
@@ -105,9 +105,9 @@ static int mic_proc_virtio_finalize_features(struct virtio_device *vdev)
 
 	vring_transport_features(vdev);
 
-	dev_dbg(&vdev->dev,"%s:gfeatures %x dfeatures %x vdev->features %llx\n",
-			__func__,rsc->gfeatures,rsc->dfeatures,vdev->features);
-	return 0;
+	dev_dbg(&vdev->dev,"%s:gfeatures %x dfeatures %x\n", __func__,
+					rsc->gfeatures, rsc->dfeatures);
+	return;
 }
 
 /* Helper function that creates and initializes the host virtio ring */
@@ -677,8 +677,8 @@ static int mic_proc_handle_resources(struct mic_proc *mic_proc, int len,
 	int ret = 0, i;
 
 	for (i = 0; i < mic_proc->table_ptr->num; i++) {
-		struct fw_rsc_hdr *hdr = (void *)mic_proc->table_ptr + offset;
 		int offset = mic_proc->table_ptr->offset[i];
+		struct fw_rsc_hdr *hdr = (void *)mic_proc->table_ptr + offset;
 		int avail = len - offset - sizeof(*hdr);
 		void *rsc = (void *)hdr + sizeof(*hdr);
 
@@ -716,8 +716,8 @@ static int mic_proc_config_virtio(struct mic_proc *mic_proc)
 	u64 lo, hi, rsc_dma_addr;
 
 	/* allocate resource table, copy lrsc, map va*/
-	lo = mic_read_spad(&mdrv->mdev, MIC_RPLO_SPAD);
-	hi = mic_read_spad(&mdrv->mdev, MIC_RPHI_SPAD);
+	lo = mic_read_spad(mdev, MIC_RPLO_SPAD);
+	hi = mic_read_spad(mdev, MIC_RPHI_SPAD);
 
 	rsc_dma_addr = lo | (hi << 32);
 	rsc_va = mic_card_map(mdev, rsc_dma_addr, PAGE_SIZE);
@@ -726,9 +726,9 @@ static int mic_proc_config_virtio(struct mic_proc *mic_proc)
 		return -ENOMEM;
 	}
 	mic_proc->table_dma_addr = rsc_dma_addr;
-	mic_proc->table_ptr = rsc_va;
+	mic_proc->table_ptr = (struct resource_table __iomem *)rsc_va;
 
-	mic_proc->db = mic_next_card_db(mdev);
+	mic_proc->db = mic_next_card_db();
 	mic_proc->db_cookie = mic_request_card_irq(mic_proc_callback, NULL,
 			"rpmsg intr", mic_proc, mic_proc->db);
 	if (IS_ERR(mic_proc->db_cookie)) {
@@ -736,7 +736,7 @@ static int mic_proc_config_virtio(struct mic_proc *mic_proc)
 		dev_err(dev, "request irq failed\n");
 		goto unmap_dma_addr;
 	}
-	iowrite32(mic_proc->db, &rsc_va->main_hdr.h2c_db);
+	//iowrite32(mic_proc->db, &rsc_va->main_hdr.h2c_db);
 
 	/* count the number of notify-ids */
 	mic_proc->max_notifyid = -1;
@@ -745,7 +745,11 @@ static int mic_proc_config_virtio(struct mic_proc *mic_proc)
 		dev_err(dev, "rsc table resource count failed\n");
 		goto free_irq;
 	}
+	dev_info(dev, "rpmsg rsc table va=%p dma_addr %lx h2c_db %d\n",
+			rsc_va, (long unsigned int) mic_proc->table_dma_addr,
+			mic_proc->db);
 
+	return 0;
 	/* look for virtio devices and register them */
 	ret = mic_proc_handle_resources(mic_proc, tablesz, mic_proc_vdev_handler);
 	if (ret) {
@@ -753,14 +757,15 @@ static int mic_proc_config_virtio(struct mic_proc *mic_proc)
 		goto free_irq;
 	}
 
-	dev_info(mdrv->dev, "rpmsg rsc table va=%p dma_addr %p h2c_db %d\n",
-			rsc_va, mic_proc->table_dma_addr, mic_proc->db);
+	dev_info(dev, "rpmsg rsc table va=%p dma_addr %lx h2c_db %d\n",
+			rsc_va, (long unsigned int) mic_proc->table_dma_addr,
+			mic_proc->db);
 	return 0;
 
 free_irq:
-	mic_free_irq(mdev, mic_proc->db_cookie, mic_proc);
+	mic_free_card_irq(mic_proc->db_cookie, mic_proc);
 unmap_dma_addr:
-	mic_card_unmap(mdev, mdev, mic_proc->table_dma_addr);
+	mic_card_unmap(mdev, mic_proc->table_ptr);
 	mic_proc->table_ptr = NULL;
 	return ret;
 }
@@ -779,6 +784,7 @@ int mic_proc_init(struct mic_driver *mdrv)
 	INIT_LIST_HEAD(&mic_proc->lvdevs);
 
 	mic_proc->dev = mdrv->dev;
+	mic_proc->mdev = &mdrv->mdev;
 
 	ret = mic_proc_config_virtio(mic_proc);
 	if (ret) {
