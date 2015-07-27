@@ -45,7 +45,7 @@ static void mic_notify_host(u8 state)
 	struct mic_bootparam __iomem *bootparam = mdrv->dp;
 
 	iowrite8(state, &bootparam->shutdown_status);
-	dev_info(mdrv->dev, "%s %d system_state %d\n",
+	dev_dbg(mdrv->dev, "%s %d system_state %d\n",
 		__func__, __LINE__, state);
 	mic_send_intr(&mdrv->mdev, ioread8(&bootparam->c2h_shutdown_db));
 }
