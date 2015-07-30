@@ -19,26 +19,29 @@ static int vrg_id_map[RVDEV_NUM_VRINGS] = { 1, 0 };
 
 static bool mic_proc_virtio_notify(struct virtqueue *vq)
 {
-	/*
-	 * TODO: We currently don't have anything implemented to
-	 * kick the right queue on the other end. For time being
-	 * ISR will look for work in both queues.
-	 */
-	return true;
-}
-/* kick the remote processor, and let it know which vring to poke at */
-static void mic_proc_virtio_vringh_notify(struct vringh *vrh)
-{
-#if 0
-	struct rproc_vring *lvring = vringh_to_rvring(vrh);
+	struct rproc_vring *lvring = vq->priv;
 	struct mic_proc *mic_proc;
-	int notifyid;
+	s8 db;
 
 	mic_proc = (struct mic_proc *)lvring->rvdev->rproc;
-	notifyid = lvring->notifyid;
-#endif
+
+	db = mic_proc->table_ptr->c2h_db;
+	mic_send_intr(mic_proc->mdev, db);
+
+	return true;
 }
 
+static void mic_proc_virtio_vringh_notify(struct vringh *vrh)
+{
+	struct rproc_vring *lvring = vringh_to_rvring(vrh);
+	struct mic_proc *mic_proc;
+	s8 db;
+
+	mic_proc = (struct mic_proc *)lvring->rvdev->rproc;
+
+	db = mic_proc->table_ptr->c2h_db;
+	mic_send_intr(mic_proc->mdev, db);
+}
 
 static void mic_proc_virtio_del_vqs(struct virtio_device *vdev)
 {
