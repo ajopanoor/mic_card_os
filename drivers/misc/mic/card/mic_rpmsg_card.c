@@ -733,10 +733,10 @@ static int mic_proc_config_virtio(struct mic_proc *mic_proc)
 			"rpmsg intr", mic_proc, mic_proc->db);
 	if (IS_ERR(mic_proc->db_cookie)) {
 		ret = PTR_ERR(mic_proc->db_cookie);
-		dev_err(dev, "request irq failed\n");
+		dev_err(dev, "%s request irq failed db %d\n", __func__, mic_proc->db);
 		goto unmap_dma_addr;
 	}
-	//iowrite32(mic_proc->db, &rsc_va->main_hdr.h2c_db);
+	iowrite32(mic_proc->db, &rsc_va->main_hdr.h2c_db);
 
 	/* count the number of notify-ids */
 	mic_proc->max_notifyid = -1;
@@ -745,11 +745,7 @@ static int mic_proc_config_virtio(struct mic_proc *mic_proc)
 		dev_err(dev, "rsc table resource count failed\n");
 		goto free_irq;
 	}
-	dev_info(dev, "rpmsg rsc table va=%p dma_addr %lx h2c_db %d\n",
-			rsc_va, (long unsigned int) mic_proc->table_dma_addr,
-			mic_proc->db);
 
-	return 0;
 	/* look for virtio devices and register them */
 	ret = mic_proc_handle_resources(mic_proc, tablesz, mic_proc_vdev_handler);
 	if (ret) {
@@ -791,8 +787,25 @@ int mic_proc_init(struct mic_driver *mdrv)
 		dev_err(mdrv->dev,"%s: virtio config failed\n", __func__);
 		goto err;
 	}
+	mdrv->priv = mic_proc;
 	return 0;
 err:
 	kfree(mic_proc);
 	return ret;
+}
+
+void mic_proc_uninit(struct mic_driver *mdrv)
+{
+	struct mic_proc *mic_proc;
+	struct rproc_vdev *lvdev, *tmp;
+
+	mic_proc = mdrv->priv;
+#if 0
+	list_for_each_entry_safe(lvdev, tmp, &mic_proc->lvdevs, node)
+		mic_proc_remove_virtio_dev(lvdev);
+#endif
+	mic_free_card_irq(mic_proc->db_cookie, mic_proc);
+	mic_card_unmap(&mdrv->mdev, mic_proc->table_ptr);
+
+	kfree(mic_proc);
 }

@@ -90,6 +90,7 @@ struct mic_driver {
 	struct dma_chan *dma_ch[MIC_MAX_DMA_CHAN];
 	int num_dma_ch;
 	struct scif_hw_dev *scdev;
+	void *priv;
 };
 
 /**

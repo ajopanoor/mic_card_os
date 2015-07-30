@@ -82,7 +82,7 @@
 #endif
 
 /* vnet/mic_shutdown/hvc/virtio/pc35_wakeup */
-unsigned int sbox_irqs[5];
+unsigned int sbox_irqs[6];
 
 void __iomem *mic_sbox_mmio_va;
 EXPORT_SYMBOL(mic_sbox_mmio_va);

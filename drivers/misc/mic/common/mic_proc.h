@@ -206,6 +206,7 @@ int mic_proc_init(struct mic_device *mdev);
 #else
 #include "../card/mic_device.h"
 int mic_proc_init(struct mic_driver *mdrv);
+void mic_proc_uninit(struct mic_driver *mdrv);
 #endif
 
 #endif /* MIC_PROC_H */
