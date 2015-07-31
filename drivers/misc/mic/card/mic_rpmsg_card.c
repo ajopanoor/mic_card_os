@@ -14,8 +14,8 @@
 #include "../common/mic_proc.h"
 #include "../common/mic_dev.h"
 
-static int vrh_id_map[RVDEV_NUM_VRINGS] = { 0, 1 };
-static int vrg_id_map[RVDEV_NUM_VRINGS] = { 1, 0 };
+static int vrh_id_map[RVDEV_NUM_VRINGS] = { 2, -1, -1 };
+static int vrg_id_map[RVDEV_NUM_VRINGS] = { 1,  0, -1 };
 
 static bool mic_proc_virtio_notify(struct virtqueue *vq)
 {

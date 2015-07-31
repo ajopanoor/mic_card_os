@@ -1398,7 +1398,7 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	/* Initialize the host type receive vrings */
 	vringh_kiov_init(&vrp->vrh_ctx.riov, NULL, 0);
 	vrp->vrh_ctx.head = USHRT_MAX;
-
+#if 0
 	/*
 	 * Prepare to kick but don't notify yet - we can't do this before
 	 * device is ready.
@@ -1415,7 +1415,8 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	 */
 	if (notify)
 		virtqueue_notify(vrp->rvq);
-
+#endif
+	virtqueue_kick(vrp->rvq);
 	dev_info(&vdev->dev, "rpmsg host is online\n");
 
 	return 0;
