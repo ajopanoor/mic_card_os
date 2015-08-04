@@ -625,7 +625,7 @@ static int rpmsg_destroy_channel(struct virtproc_info *vrp,
 static void rpmsg_destroy_genpool(struct virtproc_info *vrp)
 {
 	BUG_ON(!vrp->pool);
-	dma_free_coherent(vrp->vdev->dev.parent->parent, vrp->pool_size,
+	dma_free_coherent(vrp->vdev->dev.parent, vrp->pool_size,
 			vrp->bufs_va, vrp->bufs_dma);
 	gen_pool_destroy(vrp->pool);
 	vrp->pool = NULL;
@@ -681,7 +681,7 @@ static int rpmsg_create_genpool(struct virtproc_info *vrp)
 			 ((vrp->num_bufs / 2) * RPMSG_BUF_SIZE);
 
 	/* Allocate the chunk of memory which will passed to genpool later */
-	vrp->bufs_va = dma_alloc_coherent(vrp->vdev->dev.parent->parent,
+	vrp->bufs_va = dma_alloc_coherent(vrp->vdev->dev.parent,
 				vrp->pool_size, &vrp->bufs_dma, GFP_KERNEL);
 	if (!vrp->bufs_va) {
 		dev_err(&vrp->vdev->dev, "failed to alloc buf pool %p\n",
@@ -698,7 +698,7 @@ static int rpmsg_create_genpool(struct virtproc_info *vrp)
 	return 0;
 
 free_coherent:
-	dma_free_coherent(vrp->vdev->dev.parent->parent, vrp->pool_size,
+	dma_free_coherent(vrp->vdev->dev.parent, vrp->pool_size,
 			vrp->bufs_va, vrp->bufs_dma);
 destroy_pool:
 	gen_pool_destroy(vrp->pool);
