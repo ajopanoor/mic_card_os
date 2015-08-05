@@ -189,6 +189,7 @@ rpmsg_show_attr(announce, announce ? "true" : "false", "%s\n");
  * to change if/when we want to.
  */
 static unsigned int rpmsg_dev_index;
+static bool is_bsp = false;
 
 static ssize_t modalias_show(struct device *dev,
 			     struct device_attribute *attr, char *buf)
@@ -1025,7 +1026,12 @@ EXPORT_SYMBOL(rpmsg_send_offchannel_raw);
 
 static void *__rpmsg_ptov(struct virtproc_info *vrp, unsigned long addr, size_t len)
 {
-	return phys_to_virt(addr);
+	struct mic_device *mdev = dev_get_drvdata(&vrp->vdev->dev);
+	void *va;
+
+	va = ioremap(addr, len);
+
+	return va;
 }
 
 static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
@@ -1054,6 +1060,9 @@ static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 		dev_info(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
 					msg->src, msg->dst, len,
 					msg->flags, msg->reserved);
+
+		print_hex_dump(KERN_INFO, "rpmsg_virtio RX: ", DUMP_PREFIX_NONE, 16, 1,
+					msg, sizeof(*msg) + msg->len, true);
 
 		/* use the dst addr to fetch the callback of the appropriate user */
 		mutex_lock(&vrp->endpoints_lock);
@@ -1305,6 +1314,28 @@ static void rpmsg_ns_cb(struct rpmsg_channel *rpdev, void *data, int len,
 	}
 }
 
+static void create_dummy_rpmsg_ept(struct virtproc_info *vrp,
+					struct rpmsg_channel *rpdev,
+					struct rpmsg_channel_info *chinfo)
+{
+	struct rpmsg_ns_msg msg;
+	struct device *dev = &vrp->vdev->dev;
+	struct rpmsg_endpoint *ept = NULL;
+	int ret = 0;
+
+	memset(&msg, 0, sizeof(msg));
+
+	strncpy(msg.name, chinfo->name, sizeof(msg.name));
+
+	msg.addr = chinfo->src;	//TODO hack till we use idr to get one.
+	msg.flags |= RPMSG_NS_CREATE;
+
+	ret = rpmsg_sendto(rpdev, &msg, sizeof(msg), RPMSG_NS_ADDR);
+	if (ret)
+		dev_err(dev, "failed to announce service %d\n", ret);
+
+}
+
 static int rpmsg_probe(struct virtio_device *vdev)
 {
 	vq_callback_t *vq_cbs[] = { rpmsg_recv_done, rpmsg_xmit_done };
@@ -1416,9 +1447,23 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	if (notify)
 		virtqueue_notify(vrp->rvq);
 #endif
-	virtqueue_kick(vrp->rvq);
-	dev_info(&vdev->dev, "rpmsg host is online\n");
+	if(!is_bsp){
+		struct rpmsg_channel *rpdev;
+		struct rpmsg_channel_info chinfo = {
+			.name = "mic_proc",
+			.src  = 2048,
+			.dst  = RPMSG_ADDR_ANY
+		};
+		rpdev = rpmsg_create_channel(vrp, &chinfo);
+		if (!rpdev)
+			dev_err(&vdev->dev, "rpmsg_create_channel failed\n");
 
+		create_dummy_rpmsg_ept(vrp, rpdev, &chinfo);
+	}
+	virtqueue_kick(vrp->rvq);
+
+	dev_info(&vdev->dev, "rpmsg %s is online\n", (is_bsp ?
+							"host": "on mic card"));
 	return 0;
 
 free_coherent_genpool:
