@@ -36,7 +36,7 @@
 #include <linux/mutex.h>
 #include <linux/genalloc.h>
 #include <linux/log2.h>
-
+#include "../misc/mic/common/mic_proc.h"
 /**
  * struct rcv_ctx - internal vringh context
  * @riov: kernel vring iovector
@@ -47,6 +47,15 @@ struct rcv_ctx {
 	unsigned short head;
 };
 
+struct pool_info {
+	unsigned long va_start;
+	unsigned long va_end;
+	unsigned long pa_start;
+	unsigned long pa_end;
+	size_t pool_size;
+	bool valid;
+};
+
 /**
  * struct virtproc_info - virtual remote processor state
  * @vdev:	the virtio device
@@ -54,6 +63,7 @@ struct rcv_ctx {
  * @svq:	tx virtqueue
  * @num_bufs:	total number of buffers for rx and tx
  * @bufs_dma:	dma base addr of the buffers
+ * @mic_dma:	mapped dma addr for mic
  * @tx_lock:	protects svq, sbufs and sleepers, to allow concurrent senders.
  *		sending a message might require waking up a dozing remote
  *		processor, which involves sleeping, hence the mutex.
@@ -76,6 +86,7 @@ struct virtproc_info {
 	struct virtqueue *rvq, *svq;
 	unsigned int num_bufs;
 	dma_addr_t bufs_dma;
+	dma_addr_t mic_dma;
 	struct mutex tx_lock;
 	struct idr endpoints;
 	struct mutex endpoints_lock;
@@ -88,6 +99,8 @@ struct virtproc_info {
 	int max_frees;
 	struct vringh *vrh;
 	struct rcv_ctx vrh_ctx;
+	struct pool_info rp_info;
+	struct pool_info lp_info;
 };
 
 /*
@@ -998,9 +1011,10 @@ int rpmsg_send_offchannel_raw(struct rpmsg_channel *rpdev, u32 src, u32 dst,
 	dev_dbg(dev, "TX From 0x%x, To 0x%x, Len %d, Flags %d, Reserved %d\n",
 					msg->src, msg->dst, msg->len,
 					msg->flags, msg->reserved);
+#if 0
 	print_hex_dump(KERN_DEBUG, "rpmsg_virtio TX: ", DUMP_PREFIX_NONE, 16, 1,
 					msg, sizeof(*msg) + msg->len, true);
-
+#endif
 	sg_init_table(tx_info->sg, RPMSG_MAX_SG_SIZE);
 
 	out = rpmsg_pack_sg_list(tx_info->sg, 0, RPMSG_MAX_SG_SIZE,
@@ -1024,19 +1038,130 @@ out:
 }
 EXPORT_SYMBOL(rpmsg_send_offchannel_raw);
 
-static void *__rpmsg_ptov(struct virtproc_info *vrp, unsigned long addr, size_t len)
+static void *__rpmsg_mic_aper_va(struct virtproc_info *vrp, unsigned long addr, size_t len)
 {
 	struct mic_device *mdev = dev_get_drvdata(&vrp->vdev->dev);
 	void *va;
 
-	va = ioremap(addr, len);
+	va = ioremap((0x8000000000 | addr), len);
+
+	dev_info(&vrp->vdev->dev, "%s va %p addr %llx len %d\n", __func__,va, addr, len);
 
 	return va;
+}
+
+void *__rpmsg_ptov(struct virtproc_info *vrp, unsigned long addr, size_t len)
+{
+	unsigned offset;
+	unsigned long va;
+	struct pool_info *rp_info = &vrp->rp_info;
+
+	/*
+	 * HACK .. till be have interrupt for vdev config space changes.
+	 */
+	if(is_bsp) {
+		va = (unsigned long)__rpmsg_mic_aper_va(vrp, addr, len);
+		return (void *)va;
+	}
+
+	BUG_ON(!is_bsp && !rp_info->valid);
+#if 0
+	BUG_ON(addr < rp_info->pa_start);
+	BUG_ON(addr > rp_info->pa_end);
+#endif
+	offset = (0x8000000000 | addr) - rp_info->pa_start;
+	va = rp_info->va_start + offset;
+
+	BUG_ON(va + len > rp_info->va_end);
+
+	return (void *)va;
+}
+
+void __rpmsg_update_pool_info(struct pool_info *p_info, void *va,
+						unsigned long addr, size_t size)
+{
+	p_info->pa_start = addr;
+	p_info->va_start = (unsigned long)va;
+	p_info->pool_size = size;
+	p_info->pa_end = p_info->pa_start + size;
+	p_info->va_end = p_info->va_start + size;
+	p_info->valid = true;		//TODO Atomic opr
+}
+
+int rpmsg_map_fixed_buf_pool(struct virtproc_info *vrp, size_t total_buf_space)
+{
+	struct virtio_device *vdev = vrp->vdev;
+	struct fw_rsc_vdev_buf_desc desc;
+	unsigned offset;
+	void *bufs_va;
+
+	memset(&desc, 0, sizeof(struct fw_rsc_vdev_buf_desc));
+
+	if(is_bsp) {
+		offset = offsetof(struct fw_rsc_vdev_config, lproc_desc);
+		vdev->config->get(vdev, offset, (void *)&desc,
+				 sizeof(struct fw_rsc_vdev_buf_desc));
+	} else {
+		offset = offsetof(struct fw_rsc_vdev_config, rproc_desc);
+		vdev->config->get(vdev, offset, (void *)&desc,
+				 sizeof(struct fw_rsc_vdev_buf_desc));
+	}
+
+	dev_info(&vrp->vdev->dev, "%s: bsp %d desc.addr %p"
+				" len %u (%zu)\n",__func__, is_bsp,
+				(void *)desc.addr, desc.len, total_buf_space);
+
+	if(unlikely(!desc.addr || !desc.len))
+		return -1U;
+
+	BUG_ON(desc.len != total_buf_space);
+
+	bufs_va = (is_bsp ? __rpmsg_mic_aper_va(vrp, desc.addr, desc.len) :
+					ioremap_cache(desc.addr, desc.len));
+	if(!bufs_va) {
+		dev_err(&vrp->vdev->dev, "%s: ioremap_cache failed! phy %p"
+				" len %u\n",__func__, (void *)desc.addr,
+				desc.len);
+		return -1U;
+	}
+
+	dev_info(&vrp->vdev->dev, "%s: ioremap_cache sucess! phy %p virt %p"
+			" len %u\n",__func__, (void *)desc.addr, bufs_va,
+			desc.len);
+
+	__rpmsg_update_pool_info(&vrp->rp_info, bufs_va, desc.addr, desc.len);
+	return 0;
+}
+
+void rpmsg_cfg_update_pool_info(struct virtproc_info *vrp, unsigned len)
+{
+	struct virtio_device *vdev = vrp->vdev;
+	struct fw_rsc_vdev_buf_desc desc;
+	unsigned offset;
+
+	desc.addr = (unsigned long)(is_bsp ? vrp->mic_dma :
+						phys_to_virt(vrp->bufs_va));
+	desc.len = len;
+
+	BUG_ON(desc.addr == 0);
+
+	if(is_bsp) {
+		offset = offsetof(struct fw_rsc_vdev_config, rproc_desc);
+		vdev->config->set(vdev, offset, (void *)&desc,
+				 sizeof(struct fw_rsc_vdev_buf_desc));
+	} else {
+		offset = offsetof(struct fw_rsc_vdev_config, lproc_desc);
+		vdev->config->set(vdev, offset, (void *)&desc,
+				 sizeof(struct fw_rsc_vdev_buf_desc));
+	}
+	dev_info(&vrp->vdev->dev,"%s: bsp %d fixed size rx pool phy %p len %u\n",
+			__func__, is_bsp, (void *) desc.addr, desc.len);
 }
 
 static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 						struct vringh_kiov *riov)
 {
+
 	struct rpmsg_endpoint *ept;
 	struct rpmsg_hdr *msg = msg;
 	void *data;
@@ -1060,10 +1185,10 @@ static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 		dev_info(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
 					msg->src, msg->dst, len,
 					msg->flags, msg->reserved);
-
+#if 0
 		print_hex_dump(KERN_INFO, "rpmsg_virtio RX: ", DUMP_PREFIX_NONE, 16, 1,
 					msg, sizeof(*msg) + msg->len, true);
-
+#endif
 		/* use the dst addr to fetch the callback of the appropriate user */
 		mutex_lock(&vrp->endpoints_lock);
 
@@ -1281,6 +1406,8 @@ static void rpmsg_ns_cb(struct rpmsg_channel *rpdev, void *data, int len,
 		return;
 	}
 
+	rpmsg_cfg_update_pool_info(vrp, vrp->pool_size);
+
 	/*
 	 * the name service ept does _not_ belong to a real rpmsg channel,
 	 * and is handled by the rpmsg bus itself.
@@ -1460,6 +1587,8 @@ static int rpmsg_probe(struct virtio_device *vdev)
 
 		create_dummy_rpmsg_ept(vrp, rpdev, &chinfo);
 	}
+
+	rpmsg_map_fixed_buf_pool(vrp, vrp->pool_size);
 	virtqueue_kick(vrp->rvq);
 
 	dev_info(&vdev->dev, "rpmsg %s is online\n", (is_bsp ?
