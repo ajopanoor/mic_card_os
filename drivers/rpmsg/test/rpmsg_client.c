@@ -167,7 +167,7 @@ void rpmsg_client_cb(struct rpmsg_channel *rpdev, void *data, int len,
 {
 	struct rpmsg_recv_blk *rblk;
 
-	dev_info(&rpdev->dev, "%s: %d bytes from 0x%x",__func__, len, src);
+	dev_dbg(&rpdev->dev, "%s: %d bytes from 0x%x",__func__, len, src);
 
 	rblk = kmalloc(sizeof(*rblk), GFP_ATOMIC);
 	if (!rblk) {
@@ -187,7 +187,7 @@ void rpmsg_ept_cb(struct rpmsg_channel *rpdev, void *data, int len,
 {
 	struct rpmsg_recv_blk *rblk;
 
-	dev_info(&rpdev->dev, "%s: %d bytes from 0x%x",__func__, len, src);
+	dev_dbg(&rpdev->dev, "%s: %d bytes from 0x%x",__func__, len, src);
 
 	rblk = kmalloc(sizeof(*rblk), GFP_ATOMIC);
 	if (!rblk) {

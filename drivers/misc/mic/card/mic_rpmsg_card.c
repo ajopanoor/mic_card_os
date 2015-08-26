@@ -27,7 +27,7 @@ static bool mic_proc_virtio_notify(struct virtqueue *vq)
 
 	db = mic_proc->table_ptr->c2h_db;
 
-	dev_info(mic_proc->dev, "%s db %d\n",__func__, db);
+	dev_dbg(mic_proc->dev, "%s db %d\n",__func__, db);
 	mic_send_intr(mic_proc->mdev, db);
 
 	return true;
@@ -43,13 +43,8 @@ static void mic_proc_virtio_vringh_notify(struct vringh *vrh)
 
 	db = mic_proc->table_ptr->c2h_db;
 
-	dev_info(mic_proc->dev, "%s db %d\n",__func__, db);
+	dev_dbg(mic_proc->dev, "%s db %d\n",__func__, db);
 	mic_send_intr(mic_proc->mdev, db);
-}
-
-static void mic_proc_virtio_del_vqs(struct virtio_device *vdev)
-{
-	printk(KERN_INFO "%s: Not implemented\n", __func__);
 }
 
 static u8 mic_proc_virtio_get_status(struct virtio_device *vdev)
@@ -73,7 +68,6 @@ static void mic_proc_virtio_set_status(struct virtio_device *vdev, u8 status)
 
 	rsc->status = status;
 	dev_dbg(&vdev->dev, "status: %d\n", status);
-
 }
 
 static void mic_proc_virtio_reset(struct virtio_device *vdev)
@@ -84,9 +78,8 @@ static void mic_proc_virtio_reset(struct virtio_device *vdev)
 
 	rsc = (void *)mic_proc->table_ptr + lvdev->rsc_offset;
 
-	rsc->status = 0;
+	iowrite8(0, &rsc->status);
 	dev_dbg(&vdev->dev, "reset !\n");
-
 }
 
 /* provide the vdev features as retrieved from the firmware */
@@ -257,8 +250,20 @@ int mic_proc_alloc_vring(struct rproc_vdev *lvdev, int i)
 	return 0;
 }
 
+static void mic_proc_free_vring(struct rproc_vring *lvring)
+{
 
-int mic_proc_map_vring(struct rproc_vdev *lvdev, int i)
+	struct rproc_vdev *lvdev = lvring->rvdev;
+	struct mic_proc *mic_proc = (struct mic_proc *)lvdev->rproc;
+	struct device *dev = mic_proc->dev;
+	struct mic_device *mdev = mic_proc->mdev;
+
+	dev_info(dev,"%s\n", __func__);
+
+	mic_card_unmap(mdev, lvring->va);
+}
+
+static int mic_proc_map_vring(struct rproc_vdev *lvdev, int i)
 {
 	struct mic_proc *mic_proc = (struct mic_proc *)lvdev->rproc;
 	struct device *dev = mic_proc->dev;
@@ -337,12 +342,7 @@ static struct virtqueue *lp_find_vq(struct virtio_device *vdev,
 					mic_proc_virtio_notify, callback, name);
 	if (!vq) {
 		dev_err(dev, "vring_new_virtqueue %s failed\n", name);
-#if 0
-		/*
-		 *TODO: Implement the cleanup features.
-		 */
 		mic_proc_free_vring(lvring);
-#endif
 		return ERR_PTR(-ENOMEM);
 	}
 
@@ -379,19 +379,20 @@ static irqreturn_t mic_proc_vq_interrupt(struct mic_proc *mic_proc, int notifyid
 				}
 				break;
 			case 0:
-			case 1:
 				if(lvring && lvring->vq)
 					ret = vring_interrupt(1, lvring->vq);
 				else
 					printk(KERN_INFO "%s: Failed interrupt!"
 						"lvring %p notifyid %d",
 					       	__func__, lvring, notifyid);
-				break;
+			case 1:
+				break; //FIXME: remove if recv != vrh
 			default:
 				printk(KERN_INFO "%s: Failed interrupt!"
 						"notifyid %d ", __func__,
 								notifyid);
 				ret = IRQ_NONE;
+				break;
 		}
 	} else
 		printk(KERN_INFO "%s: Failed interrupt! mic_proc %p priv %p\n",
@@ -404,15 +405,13 @@ static irqreturn_t mic_proc_callback(int irq, void *data)
 	struct mic_proc *mic_proc = data;
 	int i;
 
-	printk(KERN_INFO "%s mic_proc %p\n",__func__, mic_proc);
 	if (unlikely(!mic_proc)) {
-		printk(KERN_DEBUG "In %s %p\n",__func__, mic_proc);
 		return IRQ_HANDLED;
 	}
 
 	for (i=0; i <= mic_proc->max_notifyid; i++) {
 		if(mic_proc_vq_interrupt(mic_proc,i) == IRQ_NONE) {
-			printk(KERN_DEBUG "%s No work to do vq %d\n",__func__,i);
+			//printk(KERN_DEBUG "%s No work to do vq %d\n",__func__,i);
 		}
 	}
 	return IRQ_HANDLED;
@@ -435,6 +434,21 @@ static int mic_proc_virtio_find_vqs(struct virtio_device *vdev, unsigned nvqs,
 	return ret;
 }
 
+static void mic_proc_virtio_del_vqs(struct virtio_device *vdev)
+{
+	struct virtqueue *vq, *n;
+	struct rproc_vring *lvring;
+
+	dev_info(&vdev->dev,"%s\n", __func__);
+	list_for_each_entry_safe(vq, n, &vdev->vqs, list) {
+		lvring = vq->priv;
+		lvring->vq = NULL;
+		vring_del_virtqueue(vq);
+		mic_proc_free_vring(lvring);
+	}
+}
+
+
 static struct virtio_config_ops mic_proc_virtio_config_ops = {
 	.get_features	= mic_proc_virtio_get_features,
 	.finalize_features = mic_proc_virtio_finalize_features,
@@ -449,7 +463,14 @@ static struct virtio_config_ops mic_proc_virtio_config_ops = {
 
 static void mic_proc_vdev_release(struct device *dev)
 {
-	printk(KERN_INFO "%s: Not implemented yet\n", __func__);
+
+	dev_info(dev,"%s\n", __func__);
+	struct virtio_device *vdev = dev_to_virtio(dev);
+	struct rproc_vdev *lvdev = vdev_to_rvdev(vdev);
+	struct mic_proc *mic_proc = (struct mic_proc *)lvdev->rproc;
+
+	list_del(&lvdev->node);
+	kfree(lvdev);
 }
 
 void mic_proc_remove_virtio_dev(struct rproc_vdev *lvdev)
@@ -479,6 +500,7 @@ static struct vringh *lp_find_vrh(struct virtio_device *vdev,
 	BUG_ON(i == -1);
 
 	lvring = &lvdev->vring[i];
+
 	BUG_ON(lvring->vq != NULL);
 	BUG_ON(lvring->rvringh != NULL);
 
@@ -501,7 +523,7 @@ static struct vringh *lp_find_vrh(struct virtio_device *vdev,
 	 */
 	vrh = mic_proc_create_new_vringh(lvring, i, callback);
 	if (!vrh) {
-		//mic_proc_free_vring(lvring);
+		mic_proc_free_vring(lvring);
 		return ERR_PTR(-ENOMEM);
 	}
 
@@ -519,13 +541,12 @@ static void __mic_proc_virtio_del_vrhs(struct virtio_device *vdev)
 			continue;
 		kfree(lvring->rvringh);
 		lvring->rvringh = NULL;
-		//mic_proc_free_vring(lvring);
+		mic_proc_free_vring(lvring);
 	}
 }
 
 static void mic_proc_virtio_del_vrhs(struct virtio_device *vdev)
 {
-	printk(KERN_INFO "%s: Not implemented completely\n", __func__);
 	__mic_proc_virtio_del_vrhs(vdev);
 }
 
@@ -747,14 +768,16 @@ static int mic_proc_config_virtio(struct mic_proc *mic_proc)
 			"rpmsg intr", mic_proc, mic_proc->db);
 	if (IS_ERR(mic_proc->db_cookie)) {
 		ret = PTR_ERR(mic_proc->db_cookie);
-		dev_err(dev, "%s request irq failed db %d\n", __func__, mic_proc->db);
+		dev_err(dev, "%s request irq failed db %d\n", __func__,
+				mic_proc->db);
 		goto unmap_dma_addr;
 	}
 	iowrite8(mic_proc->db, &rsc_va->main_hdr.h2c_db);
 
 	/* count the number of notify-ids */
 	mic_proc->max_notifyid = -1;
-	ret = mic_proc_handle_resources(mic_proc, tablesz, mic_proc_count_vrings_handler);
+	ret = mic_proc_handle_resources(mic_proc, tablesz,
+						mic_proc_count_vrings_handler);
 	if (ret) {
 		dev_err(dev, "rsc table resource count failed\n");
 		goto free_irq;
@@ -814,10 +837,10 @@ void mic_proc_uninit(struct mic_driver *mdrv)
 	struct rproc_vdev *lvdev, *tmp;
 
 	mic_proc = mdrv->priv;
-#if 0
+
 	list_for_each_entry_safe(lvdev, tmp, &mic_proc->lvdevs, node)
 		mic_proc_remove_virtio_dev(lvdev);
-#endif
+
 	mic_free_card_irq(mic_proc->db_cookie, mic_proc);
 	mic_card_unmap(&mdrv->mdev, mic_proc->table_ptr);
 

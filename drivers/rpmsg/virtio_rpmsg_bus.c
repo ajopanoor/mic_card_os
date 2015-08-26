@@ -783,7 +783,7 @@ static struct buf_info *get_var_tx_buf(struct virtproc_info *vrp, size_t len)
 	 * to go via the wait for completion overhaul.
 	 */
 	if (vrp->svq->num_free < ((len / PAGE_SIZE) + 1)) {
-		dev_dbg(&vrp->vdev->dev, "tx ring full, free %d needed %zu\n",
+		dev_info(&vrp->vdev->dev, "tx ring full, free %d needed %zu\n",
 				vrp->svq->num_free, ((len / PAGE_SIZE) + 1));
 		goto retry_later;
 	}
@@ -796,7 +796,7 @@ static struct buf_info *get_var_tx_buf(struct virtproc_info *vrp, size_t len)
 	/* allocate a buffer of size len from genpool */
 	tx_info->addr = (void *)gen_pool_alloc(vrp->pool, len);
 	if (unlikely(!tx_info->addr)) {
-		dev_dbg(&vrp->vdev->dev, "out of tx bufs, vring num_free %d\n",
+		dev_info(&vrp->vdev->dev, "out of tx bufs, vring num_free %d\n",
 				vrp->svq->num_free);
 		goto pool_empty;
 	}
@@ -1182,7 +1182,7 @@ static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 			dlen = msg->len;
 		}
 
-		dev_info(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
+		dev_dbg(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
 					msg->src, msg->dst, len,
 					msg->flags, msg->reserved);
 #if 0
@@ -1235,7 +1235,7 @@ static void rpmsg_vrh_recv_done(struct virtio_device *vdev, struct vringh *vrh)
 
 	do {
 		if(riov->i == riov->used) {
-			dev_info(dev, "riov.i %d riov.used %d ctx.head %d\n",
+			dev_dbg(dev, "riov.i %d riov.used %d ctx.head %d\n",
 					riov->i, riov->used, vrp->vrh_ctx.head);
 			if(vrp->vrh_ctx.head != USHRT_MAX){
 				vringh_complete_kern(vrp->vrh,
@@ -1260,7 +1260,7 @@ static void rpmsg_vrh_recv_done(struct virtio_device *vdev, struct vringh *vrh)
 exit:
 	switch(err) {
 		case 0:
-			dev_info(dev, "Received %u messages, dropped %u messages\n",
+			dev_dbg(dev, "Received %u messages, dropped %u messages\n",
 						msgs_received, msgs_dropped);
 			BUG_ON(msgs_dropped > 0);
 			break;
@@ -1518,7 +1518,7 @@ static int rpmsg_probe(struct virtio_device *vdev)
 
 	dev_dbg(&vdev->dev, "buffers: va %p, dma 0x%llx\n", vrp->bufs_va,
 					(unsigned long long)vrp->bufs_dma);
-
+#if 0
 	/* set up the receive buffers */
 	for (i = 0; i < vrp->num_bufs / 2; i++) {
 		struct scatterlist sg;
@@ -1534,7 +1534,7 @@ static int rpmsg_probe(struct virtio_device *vdev)
 								GFP_KERNEL);
 		WARN_ON(err); /* sanity check; this can't really happen */
 	}
-
+#endif
 	vrp->max_frees = virtqueue_get_vring_size(vrp->svq) / 4;
 
 	/* suppress "tx-complete" interrupts */
@@ -1589,6 +1589,7 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	}
 
 	rpmsg_map_fixed_buf_pool(vrp, vrp->pool_size);
+
 	virtqueue_kick(vrp->rvq);
 
 	dev_info(&vdev->dev, "rpmsg %s is online\n", (is_bsp ?
@@ -1630,6 +1631,8 @@ static void rpmsg_remove(struct virtio_device *vdev)
 	idr_destroy(&vrp->endpoints);
 
 	vdev->config->del_vqs(vrp->vdev);
+
+	vdev->vringh_config->del_vrhs(vrp->vdev);
 
 	rpmsg_destroy_genpool(vrp);
 
