@@ -183,6 +183,9 @@ struct mic_proc {
 	void *priv;
 	int db;
 	struct mic_irq *db_cookie;
+#ifdef CONFIG_MIC_RPMSG_WQ
+	struct work_struct vq_work;
+#endif
 };
 
 static inline struct rproc_vdev *vdev_to_rvdev(struct virtio_device *vdev)
@@ -204,10 +207,11 @@ static inline struct rproc_vring *vringh_to_rvring(struct vringh *vrh)
 }
 #ifndef INTEL_MIC_CARD
 int mic_proc_init(struct mic_device *mdev);
+void mic_proc_reset(struct mic_device *mdev);
 #else
 #include "../card/mic_device.h"
 int mic_proc_init(struct mic_driver *mdrv);
 void mic_proc_uninit(struct mic_driver *mdrv);
+void mic_proc_reset(struct mic_driver *mdrv);
 #endif
-
 #endif /* MIC_PROC_H */

@@ -17,6 +17,25 @@
 static int vrh_id_map[RVDEV_NUM_VRINGS] = { 2, -1, -1 };
 static int vrg_id_map[RVDEV_NUM_VRINGS] = { 1,  0, -1 };
 
+#ifdef CONFIG_MIC_RPMSG_WQ
+struct workqueue_struct *mic_rpmsg_wq;
+
+static irqreturn_t mic_proc_vq_interrupt(struct mic_proc *,int);
+static void mic_proc_rpmsg_work(struct work_struct *work)
+{
+	struct mic_proc *mic_proc =
+		container_of(work, struct mic_proc, vq_work);
+	int i;
+
+	dev_info(mic_proc->dev, "%s: bottom half\n", __func__);
+	for (i=0; i <= mic_proc->max_notifyid; i++) {
+		if(mic_proc_vq_interrupt(mic_proc,i) == IRQ_NONE) {
+			printk(KERN_DEBUG "%s No work to do vq %d\n",__func__,i);
+		}
+	}
+}
+#endif
+
 static bool mic_proc_virtio_notify(struct virtqueue *vq)
 {
 	struct rproc_vring *lvring = vq->priv;
@@ -27,7 +46,7 @@ static bool mic_proc_virtio_notify(struct virtqueue *vq)
 
 	db = mic_proc->table_ptr->c2h_db;
 
-	dev_dbg(mic_proc->dev, "%s db %d\n",__func__, db);
+	dev_info(mic_proc->dev, "%s db %d\n",__func__, db);
 	mic_send_intr(mic_proc->mdev, db);
 
 	return true;
@@ -43,7 +62,7 @@ static void mic_proc_virtio_vringh_notify(struct vringh *vrh)
 
 	db = mic_proc->table_ptr->c2h_db;
 
-	dev_dbg(mic_proc->dev, "%s db %d\n",__func__, db);
+	dev_info(mic_proc->dev, "%s db %d\n",__func__, db);
 	mic_send_intr(mic_proc->mdev, db);
 }
 
@@ -403,17 +422,25 @@ static irqreturn_t mic_proc_vq_interrupt(struct mic_proc *mic_proc, int notifyid
 static irqreturn_t mic_proc_callback(int irq, void *data)
 {
 	struct mic_proc *mic_proc = data;
-	int i;
+	struct device *dev;
+	int i = 0;
 
 	if (unlikely(!mic_proc)) {
 		return IRQ_HANDLED;
 	}
 
-	for (i=0; i <= mic_proc->max_notifyid; i++) {
-		if(mic_proc_vq_interrupt(mic_proc,i) == IRQ_NONE) {
-			//printk(KERN_DEBUG "%s No work to do vq %d\n",__func__,i);
+	dev = mic_proc->dev;
+#ifdef CONFIG_MIC_RPMSG_WQ
+	dev_info(dev, "%s vq work queued\n", __func__);
+	queue_work(mic_rpmsg_wq, &mic_proc->vq_work);
+#else
+	for (i; i <= mic_proc->max_notifyid; i++) {
+		if(mic_proc_vq_interrupt(mic_proc, i) == IRQ_NONE) {
+			dev_info(dev, "%s No work to do on vq %d\n",
+					__func__, i);
 		}
 	}
+#endif
 	return IRQ_HANDLED;
 }
 
@@ -439,7 +466,7 @@ static void mic_proc_virtio_del_vqs(struct virtio_device *vdev)
 	struct virtqueue *vq, *n;
 	struct rproc_vring *lvring;
 
-	dev_info(&vdev->dev,"%s\n", __func__);
+	dev_info(&vdev->dev,"%s done\n", __func__);
 	list_for_each_entry_safe(vq, n, &vdev->vqs, list) {
 		lvring = vq->priv;
 		lvring->vq = NULL;
@@ -463,11 +490,10 @@ static struct virtio_config_ops mic_proc_virtio_config_ops = {
 
 static void mic_proc_vdev_release(struct device *dev)
 {
-
-	dev_info(dev,"%s\n", __func__);
 	struct virtio_device *vdev = dev_to_virtio(dev);
 	struct rproc_vdev *lvdev = vdev_to_rvdev(vdev);
-	struct mic_proc *mic_proc = (struct mic_proc *)lvdev->rproc;
+
+	dev_info(dev,"%s virtio-%d\n", __func__, vdev->id.device);
 
 	list_del(&lvdev->node);
 	kfree(lvdev);
@@ -539,6 +565,7 @@ static void __mic_proc_virtio_del_vrhs(struct virtio_device *vdev)
 		struct rproc_vring *lvring = &lvdev->vring[i];
 		if (!lvring->rvringh)
 			continue;
+		dev_info(&vdev->dev,"%s vring[%d]\n", __func__, i);
 		kfree(lvring->rvringh);
 		lvring->rvringh = NULL;
 		mic_proc_free_vring(lvring);
@@ -813,7 +840,12 @@ int mic_proc_init(struct mic_driver *mdrv)
 		dev_err(mdrv->dev,"%s: kzalloc failed\n", __func__);
 		return ret;
 	}
-
+#ifdef CONFIG_MIC_RPMSG_WQ
+	mic_rpmsg_wq = alloc_workqueue("mic-rpmsg-wq", 0, 0);
+	if (!mic_rpmsg_wq)
+		goto err;
+	INIT_WORK(&mic_proc->vq_work, mic_proc_rpmsg_work);
+#endif
 	INIT_LIST_HEAD(&mic_proc->lvdevs);
 
 	mic_proc->dev = mdrv->dev;
@@ -827,8 +859,18 @@ int mic_proc_init(struct mic_driver *mdrv)
 	mdrv->priv = mic_proc;
 	return 0;
 err:
+#ifdef CONFIG_MIC_RPMSG_WQ
+	destroy_workqueue(mic_rpmsg_wq);
+#endif
 	kfree(mic_proc);
 	return ret;
+}
+
+void mic_proc_reset(struct mic_driver *mdrv)
+{
+	struct mic_proc *mic_proc;
+
+	mic_proc = mdrv->priv;
 }
 
 void mic_proc_uninit(struct mic_driver *mdrv)
@@ -842,6 +884,9 @@ void mic_proc_uninit(struct mic_driver *mdrv)
 		mic_proc_remove_virtio_dev(lvdev);
 
 	mic_free_card_irq(mic_proc->db_cookie, mic_proc);
+#ifdef CONFIG_MIC_RPMSG_WQ
+	destroy_workqueue(mic_rpmsg_wq);
+#endif
 	mic_card_unmap(&mdrv->mdev, mic_proc->table_ptr);
 
 	kfree(mic_proc);

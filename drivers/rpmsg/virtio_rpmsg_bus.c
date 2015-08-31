@@ -751,10 +751,11 @@ static void release_tx_bufs(struct virtproc_info *vrp)
 
 	while ((count < vrp->max_frees) &&
 			(tx_info = virtqueue_get_buf(vrp->svq, &len))) {
-
 		free_tx_buf(vrp, tx_info);
 		count++;
 	}
+	dev_info(&vrp->vdev->dev, "%s tx done num_free %d count %lu\n",__func__,
+						vrp->svq->num_free, count);
 }
 
 /**
@@ -1008,7 +1009,7 @@ int rpmsg_send_offchannel_raw(struct rpmsg_channel *rpdev, u32 src, u32 dst,
 	msg->reserved = 0;
 	memcpy(msg->data, data, len);
 
-	dev_dbg(dev, "TX From 0x%x, To 0x%x, Len %d, Flags %d, Reserved %d\n",
+	dev_info(dev, "TX From 0x%x, To 0x%x, Len %d, Flags %d, Reserved %d\n",
 					msg->src, msg->dst, msg->len,
 					msg->flags, msg->reserved);
 #if 0
@@ -1182,7 +1183,7 @@ static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 			dlen = msg->len;
 		}
 
-		dev_dbg(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
+		dev_info(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
 					msg->src, msg->dst, len,
 					msg->flags, msg->reserved);
 #if 0
@@ -1235,7 +1236,7 @@ static void rpmsg_vrh_recv_done(struct virtio_device *vdev, struct vringh *vrh)
 
 	do {
 		if(riov->i == riov->used) {
-			dev_dbg(dev, "riov.i %d riov.used %d ctx.head %d\n",
+			dev_info(dev, "riov.i %d riov.used %d ctx.head %d\n",
 					riov->i, riov->used, vrp->vrh_ctx.head);
 			if(vrp->vrh_ctx.head != USHRT_MAX){
 				vringh_complete_kern(vrp->vrh,
@@ -1254,8 +1255,10 @@ static void rpmsg_vrh_recv_done(struct virtio_device *vdev, struct vringh *vrh)
 			continue;
 		}
 		msgs_received++;
+#if 0
 		if(msgs_received >= (vrp->vrh->vring.num >> 2))
 			break;
+#endif
 	} while(true);
 exit:
 	switch(err) {
@@ -1271,8 +1274,11 @@ exit:
 			dev_info(dev, "vringh_getdesc_kern unkown failure\n");
 			break;
 	}
-	if (msgs_received && vringh_need_notify_kern(vrp->vrh) > 0)
+	if (msgs_received && vringh_need_notify_kern(vrp->vrh) > 0){
+		dev_info(dev, "Notify %u messages, dropped %u messages\n",
+						msgs_received, msgs_dropped);
 		vringh_notify(vrp->vrh);
+	}
 }
 
 static int rpmsg_recv_single(struct virtproc_info *vrp, struct device *dev,
@@ -1380,7 +1386,7 @@ static void rpmsg_xmit_done(struct virtqueue *svq)
 {
 	struct virtproc_info *vrp = svq->vdev->priv;
 
-	dev_dbg(&svq->vdev->dev, "%s\n", __func__);
+	dev_info(&svq->vdev->dev, "%s\n", __func__);
 
 	/* wake up potential senders that are waiting for a tx buffer */
 	wake_up_interruptible(&vrp->sendq);
