@@ -1221,8 +1221,10 @@ static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 			/* farewell, ept, we don't need you anymore */
 			kref_put(&ept->refcount, __ept_release);
 		} else {
-			dev_warn(dev, "%s msg received with no recipient\n",
-					__func__);
+			dev_warn(dev, "No receipient? From: 0x%x, To: 0x%x,Len: %zu,"
+					"Flags: %d, Reserved: %d\n",
+					msg->src, msg->dst, len,
+					msg->flags, msg->reserved);
 			err++;
 		}
 		++riov->i;
@@ -1263,17 +1265,15 @@ static void rpmsg_vrh_recv_done(struct virtio_device *vdev, struct vringh *vrh)
 			continue;
 		}
 		msgs_received++;
-#if 0
 		if(msgs_received >= (vrp->vrh->vring.num >> 2))
 			break;
-#endif
 	} while(true);
 exit:
 	switch(err) {
 		case 0:
 			dev_dbg(dev, "Received %u messages, dropped %u messages\n",
 						msgs_received, msgs_dropped);
-			BUG_ON(msgs_dropped > 0);
+			//BUG_ON(msgs_dropped > 0);
 			break;
 		case -ENOMEM:
 			dev_info(dev, "vringh_getdesc_kern failed with no mem\n");
