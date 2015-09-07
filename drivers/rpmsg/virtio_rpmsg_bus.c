@@ -314,6 +314,8 @@ static struct rpmsg_endpoint *__rpmsg_create_ept(struct virtproc_info *vrp,
 
 	mutex_unlock(&vrp->endpoints_lock);
 
+	dev_info(dev, "%s create ept %ps ept->addr %d (0x%x)\n",rpdev->id.name,
+			cb, id, id);
 	return ept;
 
 free_ept:
@@ -421,6 +423,7 @@ static int rpmsg_dev_probe(struct device *dev)
 	struct rpmsg_channel *rpdev = to_rpmsg_channel(dev);
 	struct rpmsg_driver *rpdrv = to_rpmsg_driver(rpdev->dev.driver);
 	struct virtproc_info *vrp = rpdev->vrp;
+	struct mic_device *mdev = dev_get_drvdata(&vrp->vdev->dev);
 	struct rpmsg_endpoint *ept;
 	int err;
 
@@ -433,6 +436,7 @@ static int rpmsg_dev_probe(struct device *dev)
 
 	rpdev->ept = ept;
 	rpdev->src = ept->addr;
+	dev_set_drvdata(dev, mdev);
 
 	err = rpdrv->probe(rpdev);
 	if (err) {
