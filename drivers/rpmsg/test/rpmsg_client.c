@@ -264,14 +264,14 @@ rpmsg_write(struct file *f, const char __user *buf, size_t count, loff_t *ppos)
 	int buf_0 = ((int __user *)buf)[0];
 	int ret;
 
-	if (rvdev->flags & (O_NONBLOCK|~O_DIRECT)) {
+	if (rvdev->flags & (O_NONBLOCK|~O_SYNC)) {
 		dev_info(&rpdev->dev,"%s rpmsg_trysend_offchannel"
 				"buf[%3d]\n",__func__, buf_0);
 
 		ret = rpmsg_trysend_offchannel(rpdev, rvdev->src, rvdev->dst,
 			(void *)buf, (int)count);
 
-	} else if (rvdev->flags & O_DIRECT) {
+	} else if (rvdev->flags & O_SYNC) {
 		dev_info(&rpdev->dev,"%s rpmsg_send_offchannel_zcopy"
 				"buf[%3d]\n",__func__, buf_0);
 
@@ -570,9 +570,9 @@ static void rpmsg_cfg_client_dev(struct rpmsg_client_vdev *rvdev, unsigned long 
 				__ktargs->dst_ept);
 		rvdev->dst = __ktargs->dst_ept;
 	}
-	if (__ktargs->flags & O_DIRECT) {
+	if (__ktargs->flags & O_SYNC) {
 		dev_info(&rpdev->dev, "%s cfg zero-copy tx\n", __func__);
-		rvdev->flags |= O_DIRECT;
+		rvdev->flags |= O_SYNC;
 	}
 	kfree(__ktargs);
 }
