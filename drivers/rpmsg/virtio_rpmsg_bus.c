@@ -781,8 +781,8 @@ static void release_tx_bufs(struct virtproc_info *vrp)
 		count++;
 	}
 
-	dev_info(&vrp->vdev->dev, "%s tx done num_free %d count %lu\n",__func__,
-						vrp->svq->num_free, count);
+	dev_info(&vrp->vdev->dev, "%s Tx Done num_free %d count %lu\n",__func__,
+			vrp->svq->num_free, count);
 }
 
 /**
@@ -1276,7 +1276,7 @@ void rpmsg_cfg_update_pool_info(struct virtproc_info *vrp, unsigned len)
 	unsigned offset;
 
 	desc.addr = (unsigned long)(is_bsp ? vrp->mic_dma :
-						phys_to_virt(vrp->bufs_va));
+						virt_to_phys(vrp->bufs_va));
 	desc.len = len;
 
 	BUG_ON(desc.addr == 0);
@@ -1315,8 +1315,9 @@ static int rpmsg_recv_single_iov(struct virtproc_info *vrp, struct device *dev,
 		mutex_lock(&ept->cb_lock);
 
 		if (ept->cb)
-			ept->cb(ept->rpdev, (void *)riov, msg->len, ept->priv,
-					msg->src);
+			ept->cb(ept->rpdev, (void *)riov,
+					(msg->len + sizeof(*msg)),
+					ept->priv, msg->src);
 
 		mutex_unlock(&ept->cb_lock);
 
@@ -1332,22 +1333,79 @@ static int rpmsg_recv_single_iov(struct virtproc_info *vrp, struct device *dev,
 	return err;
 }
 
-static inline bool __check_zcopy(struct virtproc_info *vrp,
-		struct vringh_kiov *riov, struct rpmsg_hdr **msg)
+static inline struct rpmsg_hdr *read_msg_hdr(struct virtproc_info *vrp,
+		struct vringh_kiov *riov)
 {
 	int len;
+	struct rpmsg_hdr *msg;
 
 	len = riov->iov[riov->i].iov_len;
+	msg = __rpmsg_ptov(vrp, (unsigned long)riov->iov[riov->i].iov_base, len);
 
-	*msg = __rpmsg_ptov(vrp, (unsigned long)riov->iov[riov->i].iov_base, len);
+	return msg;
+}
 
-	return (*msg)->flags;
+static int rpmsg_recv_single_dma(struct virtproc_info *vrp, struct device *dev,
+				struct vringh_kiov *riov, struct rpmsg_hdr *msg)
+{
+
+	struct rpmsg_endpoint *ept;
+	void *data;
+	size_t len;
+	int err = 0;
+
+	BUG_ON(riov->i == riov->used);
+	BUG_ON(riov->i != 0);
+
+	do {
+		len = riov->iov[riov->i].iov_len;
+		data = (void *)riov->iov[riov->i].iov_base;
+
+		dev_info(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
+					msg->src, msg->dst, len,
+					msg->flags, msg->reserved);
+#if 0
+		print_hex_dump(KERN_DEBUG, "rpmsg_virtio RX: ", DUMP_PREFIX_NONE, 16, 1,
+					msg, sizeof(*msg) + msg->len, true);
+#endif
+		/* use the dst addr to fetch the callback of the appropriate user */
+		mutex_lock(&vrp->endpoints_lock);
+
+		ept = idr_find(&vrp->endpoints, msg->dst);
+
+		/* let's make sure no one deallocates ept while we use it */
+		if (ept)
+			kref_get(&ept->refcount);
+
+		mutex_unlock(&vrp->endpoints_lock);
+
+		if (ept) {
+			/* make sure ept->cb doesn't go away while we use it */
+			mutex_lock(&ept->cb_lock);
+
+			if (ept->cb)
+				ept->cb(ept->rpdev, data, len, ept->priv,
+						msg->src);
+			mutex_unlock(&ept->cb_lock);
+
+			/* farewell, ept, we don't need you anymore */
+			kref_put(&ept->refcount, __ept_release);
+		} else {
+			dev_warn(dev, "No receipient? From: 0x%x, To: 0x%x,Len: %zu,"
+					"Flags: %d, Reserved: %d\n",
+					msg->src, msg->dst, len,
+					msg->flags, msg->reserved);
+			err++;
+		}
+		++riov->i;
+	} while(riov->i != riov->used);
+
+	return err;
 }
 
 static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 						struct vringh_kiov *riov)
 {
-
 	struct rpmsg_endpoint *ept;
 	struct rpmsg_hdr *msg = msg;
 	void *data;
@@ -1357,14 +1415,6 @@ static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 	BUG_ON(riov->i == riov->used);
 	BUG_ON(riov->i != 0);
 
-	if (__check_zcopy(vrp, riov, &msg)) {
-		dev_info(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
-					msg->src, msg->dst, len,
-					msg->flags, msg->reserved);
-		err = rpmsg_recv_single_iov(vrp, dev, riov, msg);
-
-		return err;
-	}
 	do {
 		len = riov->iov[riov->i].iov_len;
 		data = __rpmsg_ptov(vrp,
@@ -1376,7 +1426,7 @@ static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 			dlen = msg->len;
 		}
 
-		dev_info(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
+		dev_dbg(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
 					msg->src, msg->dst, len,
 					msg->flags, msg->reserved);
 #if 0
@@ -1427,6 +1477,7 @@ static void rpmsg_vrh_recv_done(struct virtio_device *vdev, struct vringh *vrh)
 	struct device *dev = &vdev->dev;
 	struct vringh_kiov *riov = &vrp->vrh_ctx.riov;
 	unsigned int msgs_received = 0, msgs_dropped = 0;
+	struct rpmsg_hdr *msg;
 	int err;
 
 	do {
@@ -1444,19 +1495,32 @@ static void rpmsg_vrh_recv_done(struct virtio_device *vdev, struct vringh *vrh)
 			if (err <= 0)
 				goto exit;
 		}
-		err = rpmsg_recv_single_vrh(vrp, dev, riov);
+		msg = read_msg_hdr(vrp, riov);
+		switch (msg->dst) {
+			case 0xdac:
+				err = rpmsg_recv_single_dma(vrp, dev, riov, msg);
+				break;
+			case 0xdad:
+				err = rpmsg_recv_single_iov(vrp, dev, riov, msg);
+				break;
+			default:
+				err = rpmsg_recv_single_vrh(vrp, dev, riov);
+				break;
+		}
 		if (err){
 			msgs_dropped++;
 			continue;
 		}
 		msgs_received++;
+#if 0
 		if(msgs_received >= (vrp->vrh->vring.num >> 2))
 			break;
+#endif
 	} while(true);
 exit:
 	switch(err) {
 		case 0:
-			dev_dbg(dev, "Received %u messages, dropped %u messages\n",
+			dev_info(dev, "Received %u messages, dropped %u messages\n",
 						msgs_received, msgs_dropped);
 			//BUG_ON(msgs_dropped > 0);
 			break;
@@ -1734,7 +1798,7 @@ static int rpmsg_probe(struct virtio_device *vdev)
 		WARN_ON(err); /* sanity check; this can't really happen */
 	}
 #endif
-	vrp->max_frees = virtqueue_get_vring_size(vrp->svq) / 4;
+	vrp->max_frees = virtqueue_get_vring_size(vrp->svq) / 2;
 
 	/* suppress "tx-complete" interrupts */
 	virtqueue_disable_cb(vrp->svq);
