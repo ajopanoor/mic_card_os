@@ -604,6 +604,7 @@ static struct vringh_config_ops mic_proc_virtio_vringh_ops = {
 
 int mic_proc_add_virtio_dev(struct mic_proc *mic_proc, struct rproc_vdev *lvdev, int id)
 {
+	struct mic_driver *mdrv;
 	struct device *dev = mic_proc->dev;
 	struct virtio_device *vdev = &lvdev->vdev;
 	int ret;
@@ -613,7 +614,8 @@ int mic_proc_add_virtio_dev(struct mic_proc *mic_proc, struct rproc_vdev *lvdev,
 	vdev->vringh_config = &mic_proc_virtio_vringh_ops;
 	vdev->dev.parent = dev;
 	vdev->dev.release = mic_proc_vdev_release;
-	dev_set_drvdata(&vdev->dev, mic_proc->mdev);
+	mdrv = container_of(mic_proc->mdev, struct mic_driver, mdev);
+	dev_set_drvdata(&vdev->dev, mdrv);
 
 	ret = register_virtio_device(vdev);
 	if (ret) {

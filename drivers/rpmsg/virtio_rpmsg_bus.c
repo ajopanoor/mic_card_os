@@ -436,7 +436,7 @@ static int rpmsg_dev_probe(struct device *dev)
 	struct rpmsg_channel *rpdev = to_rpmsg_channel(dev);
 	struct rpmsg_driver *rpdrv = to_rpmsg_driver(rpdev->dev.driver);
 	struct virtproc_info *vrp = rpdev->vrp;
-	struct mic_device *mdev = dev_get_drvdata(&vrp->vdev->dev);
+	void *mdrv = dev_get_drvdata(&vrp->vdev->dev);
 	struct rpmsg_endpoint *ept;
 	int err;
 
@@ -449,7 +449,7 @@ static int rpmsg_dev_probe(struct device *dev)
 
 	rpdev->ept = ept;
 	rpdev->src = ept->addr;
-	dev_set_drvdata(dev, mdev);
+	dev_set_drvdata(dev, mdrv);
 
 	err = rpdrv->probe(rpdev);
 	if (err) {
@@ -781,7 +781,7 @@ static void release_tx_bufs(struct virtproc_info *vrp)
 		count++;
 	}
 
-	dev_info(&vrp->vdev->dev, "%s Tx Done num_free %d count %lu\n",__func__,
+	dev_info(&vrp->vdev->dev, "%s Tx Done num_free %d count %u\n",__func__,
 			vrp->svq->num_free, count);
 }
 
@@ -1176,12 +1176,11 @@ EXPORT_SYMBOL(rpmsg_send_offchannel_raw);
 
 static void *__rpmsg_mic_aper_va(struct virtproc_info *vrp, unsigned long addr, size_t len)
 {
-	struct mic_device *mdev = dev_get_drvdata(&vrp->vdev->dev);
 	void *va;
 
 	va = ioremap((0x8000000000 | addr), len);
 
-	dev_info(&vrp->vdev->dev, "%s va %p addr %llx len %d\n", __func__,va, addr, len);
+	dev_info(&vrp->vdev->dev, "%s va %p addr %lx len %zu\n", __func__,va, addr, len);
 
 	return va;
 }
@@ -1359,12 +1358,11 @@ static int rpmsg_recv_single_dma(struct virtproc_info *vrp, struct device *dev,
 
 	do {
 		len = riov->iov[riov->i].iov_len;
-		data = (void *)riov->iov[riov->i].iov_base;
-
+		data = __rpmsg_ptov(vrp, (unsigned long)riov->iov[riov->i].iov_base, len);
+#if 0
 		dev_info(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
 					msg->src, msg->dst, len,
 					msg->flags, msg->reserved);
-#if 0
 		print_hex_dump(KERN_DEBUG, "rpmsg_virtio RX: ", DUMP_PREFIX_NONE, 16, 1,
 					msg, sizeof(*msg) + msg->len, true);
 #endif
@@ -1425,11 +1423,10 @@ static int rpmsg_recv_single_vrh(struct virtproc_info *vrp, struct device *dev,
 			len -= sizeof(struct rpmsg_hdr);
 			dlen = msg->len;
 		}
-
+#if 0
 		dev_dbg(dev, "From: 0x%x, To: 0x%x, Len: %zu, Flags: %d, Reserved: %d\n",
 					msg->src, msg->dst, len,
 					msg->flags, msg->reserved);
-#if 0
 		print_hex_dump(KERN_INFO, "rpmsg_virtio RX: ", DUMP_PREFIX_NONE, 16, 1,
 					msg, sizeof(*msg) + msg->len, true);
 #endif
@@ -1476,13 +1473,13 @@ static void rpmsg_vrh_recv_done(struct virtio_device *vdev, struct vringh *vrh)
 	struct virtproc_info *vrp = vdev->priv;
 	struct device *dev = &vdev->dev;
 	struct vringh_kiov *riov = &vrp->vrh_ctx.riov;
-	unsigned int msgs_received = 0, msgs_dropped = 0;
+	unsigned int msgs_received = 0, msgs_dropped = 0, part = 0;
 	struct rpmsg_hdr *msg;
 	int err;
 
 	do {
-		if(riov->i == riov->used) {
-			dev_info(dev, "riov.i %d riov.used %d ctx.head %d\n",
+		if (riov->i == riov->used) {
+			dev_dbg(dev, "riov.i %d riov.used %d ctx.head %d\n",
 					riov->i, riov->used, vrp->vrh_ctx.head);
 			if(vrp->vrh_ctx.head != USHRT_MAX){
 				vringh_complete_kern(vrp->vrh,
@@ -1512,10 +1509,12 @@ static void rpmsg_vrh_recv_done(struct virtio_device *vdev, struct vringh *vrh)
 			continue;
 		}
 		msgs_received++;
-#if 0
-		if(msgs_received >= (vrp->vrh->vring.num >> 2))
-			break;
-#endif
+		part++;
+		if (part >= (vrp->vrh->vring.num >> 2) &&
+				(vringh_need_notify_kern(vrp->vrh) > 0)) {
+			vringh_notify(vrp->vrh);
+			part = 0;
+		}
 	} while(true);
 exit:
 	switch(err) {
@@ -1710,7 +1709,6 @@ static void create_dummy_rpmsg_ept(struct virtproc_info *vrp,
 {
 	struct rpmsg_ns_msg msg;
 	struct device *dev = &vrp->vdev->dev;
-	struct rpmsg_endpoint *ept = NULL;
 	int ret = 0;
 
 	memset(&msg, 0, sizeof(msg));
@@ -1733,8 +1731,7 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	const char *names[] = { "input", "output" };
 	struct virtqueue *vqs[2];
 	struct virtproc_info *vrp;
-	int err = 0, i;
-	bool notify;
+	int err = 0;
 
 	vrp = kzalloc(sizeof(*vrp), GFP_KERNEL);
 	if (!vrp)
