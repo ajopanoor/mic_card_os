@@ -27,7 +27,7 @@ static void mic_proc_rpmsg_work(struct work_struct *work)
 		container_of(work, struct mic_proc, vq_work);
 	int i;
 
-	dev_info(mic_proc->dev, "%s: bottom half\n", __func__);
+	dev_dbg(mic_proc->dev, "%s: bottom half\n", __func__);
 	for (i=0; i <= mic_proc->max_notifyid; i++) {
 		if(mic_proc_vq_interrupt(mic_proc,i) == IRQ_NONE) {
 			printk(KERN_DEBUG "%s No work to do vq %d\n",__func__,i);
@@ -46,7 +46,7 @@ static bool mic_proc_virtio_notify(struct virtqueue *vq)
 
 	db = mic_proc->table_ptr->c2h_db;
 
-	dev_info(mic_proc->dev, "%s db %d\n",__func__, db);
+	dev_dbg(mic_proc->dev, "%s db %d\n",__func__, db);
 	mic_send_intr(mic_proc->mdev, db);
 
 	return true;
@@ -62,7 +62,7 @@ static void mic_proc_virtio_vringh_notify(struct vringh *vrh)
 
 	db = mic_proc->table_ptr->c2h_db;
 
-	dev_info(mic_proc->dev, "%s db %d\n",__func__, db);
+	dev_dbg(mic_proc->dev, "%s db %d\n",__func__, db);
 	mic_send_intr(mic_proc->mdev, db);
 }
 
@@ -431,12 +431,11 @@ static irqreturn_t mic_proc_callback(int irq, void *data)
 
 	dev = mic_proc->dev;
 #ifdef CONFIG_MIC_RPMSG_WQ
-	dev_info(dev, "%s vq work queued\n", __func__);
 	queue_work(mic_rpmsg_wq, &mic_proc->vq_work);
 #else
 	for (i; i <= mic_proc->max_notifyid; i++) {
 		if(mic_proc_vq_interrupt(mic_proc, i) == IRQ_NONE) {
-			dev_info(dev, "%s No work to do on vq %d\n",
+			dev_dbg(dev, "%s No work to do on vq %d\n",
 					__func__, i);
 		}
 	}
