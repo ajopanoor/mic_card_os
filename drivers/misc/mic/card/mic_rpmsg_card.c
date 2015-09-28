@@ -30,7 +30,7 @@ static void mic_proc_rpmsg_work(struct work_struct *work)
 	dev_dbg(mic_proc->dev, "%s: bottom half\n", __func__);
 	for (i=0; i <= mic_proc->max_notifyid; i++) {
 		if(mic_proc_vq_interrupt(mic_proc,i) == IRQ_NONE) {
-			printk(KERN_DEBUG "%s No work to do vq %d\n",__func__,i);
+			//printk(KERN_DEBUG "%s No work to do vq %d\n",__func__,i);
 		}
 	}
 }
@@ -397,13 +397,16 @@ static irqreturn_t mic_proc_vq_interrupt(struct mic_proc *mic_proc, int notifyid
 					ret = IRQ_NONE;
 				}
 				break;
-			case 0:
+			case 0:	//FIXME: tx_complete intr are mannually disabled
+#if 0
 				if(lvring && lvring->vq)
 					ret = vring_interrupt(1, lvring->vq);
 				else
 					printk(KERN_INFO "%s: Failed interrupt!"
 						"lvring %p notifyid %d",
 					       	__func__, lvring, notifyid);
+#endif
+				break;
 			case 1:
 				break; //FIXME: remove if recv != vrh
 			default:
@@ -435,8 +438,7 @@ static irqreturn_t mic_proc_callback(int irq, void *data)
 #else
 	for (i; i <= mic_proc->max_notifyid; i++) {
 		if(mic_proc_vq_interrupt(mic_proc, i) == IRQ_NONE) {
-			dev_dbg(dev, "%s No work to do on vq %d\n",
-					__func__, i);
+			//dev_dbg(dev, "%s No work to do on vq %d\n", __func__, i);
 		}
 	}
 #endif

@@ -118,18 +118,6 @@ struct virtproc_info {
  */
 #define RPMSG_MAX_SG_SIZE	((MAX_SBUF_SIZE/PAGE_SIZE) + 1)
 
-#define RPMSG_ZCOPY		1
-
-struct zero_copy_info {
-	bool valid;
-	int len;
-	u32 src;
-	void *data;
-	void *priv;
-	struct rpmsg_channel *rpdev;
-	rpmsg_tx_cb_t tx_cb;
-};
-
 /**
  * struct buf_info - Tx buffer info
  * @len:  length of the send buffer/msg
@@ -141,7 +129,6 @@ struct zero_copy_info {
 struct buf_info {
 	size_t len;
 	void *addr;
-	struct zero_copy_info zcopy;
 	struct scatterlist sg[RPMSG_MAX_SG_SIZE];
 };
 
@@ -749,12 +736,6 @@ static inline void free_tx_buf(struct virtproc_info *vrp,
 {
 	gen_pool_free(vrp->pool, (unsigned long int)tx_info->addr,
 			tx_info->len);
-
-	if (tx_info->zcopy.valid) {
-		struct zero_copy_info *zcopy= &tx_info->zcopy;
-		zcopy->tx_cb(zcopy->rpdev, zcopy->data, zcopy->len, zcopy->priv,
-				zcopy->src);
-	}
 	kfree(tx_info);
 }
 
@@ -830,7 +811,6 @@ static struct buf_info *get_var_tx_buf(struct virtproc_info *vrp, size_t len)
 	}
 
 	tx_info->len = len;
-	tx_info->zcopy.valid = false;
 
 	mutex_unlock(&vrp->tx_lock);
 
@@ -975,112 +955,6 @@ static void rpmsg_downref_sleepers(struct virtproc_info *vrp)
  *
  * Returns 0 on success and an appropriate error value on failure.
  */
-int rpmsg_send_offchannel_raw_zcopy(struct rpmsg_channel *rpdev, u32 src, u32 dst,
-		void *data, int len, bool wait, rpmsg_tx_cb_t tx_cb, void *priv)
-{
-	struct virtproc_info *vrp = rpdev->vrp;
-	struct device *dev = &rpdev->dev;
-	struct zero_copy_info *zcopy;
-	struct buf_info *tx_info;
-	struct rpmsg_hdr *msg;
-	int err = 0, out;
-
-	/* bcasting isn't allowed */
-	if (src == RPMSG_ADDR_ANY || dst == RPMSG_ADDR_ANY) {
-		dev_err(dev, "invalid addr (src 0x%x, dst 0x%x)\n", src, dst);
-		return -EINVAL;
-	}
-
-	/*
-	 * One other possible improvements here is to support user-provided
-	 * buffers (and then we can also support zero-copy messaging).
-	 */
-	if (len > MAX_SBUF_SIZE) {
-		dev_err(dev, "message is too big (%d)\n", len);
-		return -EMSGSIZE;
-	}
-
-	/* grab a buffer */
-	tx_info = get_var_tx_buf(vrp, sizeof(*msg));
-	if (!tx_info && !wait)
-		return -ENOMEM;
-
-	/* no free buffer ? wait for one (but bail after 15 seconds) */
-	while (!tx_info) {
-		/* enable "tx-complete" interrupts, if not already enabled */
-		rpmsg_upref_sleepers(vrp);
-
-		/*
-		 * sleep until a free buffer is available or 15 secs elapse.
-		 * the timeout period is not configurable because there's
-		 * little point in asking drivers to specify that.
-		 * if later this happens to be required, it'd be easy to add.
-		 */
-		err = wait_event_interruptible_timeout(vrp->sendq,
-					(tx_info = get_var_tx_buf(vrp,
-								sizeof(*msg))),
-					msecs_to_jiffies(15000));
-
-		/* disable "tx-complete" interrupts if we're the last sleeper */
-		rpmsg_downref_sleepers(vrp);
-
-		/* timeout ? */
-		if (!err) {
-			dev_err(dev, "timeout waiting for a tx buffer\n");
-			return -ERESTARTSYS;
-		}
-	}
-
-	msg = tx_info->addr;
-	msg->len = len;
-	msg->flags = RPMSG_ZCOPY;
-	msg->src = src;
-	msg->dst = dst;
-	msg->reserved = 0;
-
-	dev_dbg(dev, "TX From 0x%x, To 0x%x, Len %d, Flags %d, Reserved %d\n",
-					msg->src, msg->dst, msg->len,
-					msg->flags, msg->reserved);
-#if 0
-	print_hex_dump(KERN_DEBUG, "rpmsg_virtio TX: ", DUMP_PREFIX_NONE, 16, 1,
-					msg, sizeof(*msg) + msg->len, true);
-#endif
-	sg_init_table(tx_info->sg, RPMSG_MAX_SG_SIZE);
-
-	zcopy = &tx_info->zcopy;
-	zcopy->tx_cb = tx_cb;
-	zcopy->len = len;
-	zcopy->src = src;
-	zcopy->rpdev = rpdev;
-	zcopy->data = data;
-	zcopy->priv = priv;
-	zcopy->valid = true;
-
-	out = rpmsg_pack_sg_list(tx_info->sg, 0, RPMSG_MAX_SG_SIZE,
-					(char *)msg, sizeof(*msg));
-
-	out += rpmsg_pack_sg_list(tx_info->sg, 1, RPMSG_MAX_SG_SIZE,
-					(char *)data, len);
-
-	mutex_lock(&vrp->tx_lock);
-
-	/* add message to the remote processor's virtqueue */
-	err = virtqueue_add_outbuf(vrp->svq, tx_info->sg, out, tx_info,
-								GFP_KERNEL);
-	if (err) {
-		/* need to reclaim the buffer here, otherwise it's lost */
-		dev_err(dev, "virtqueue_add_outbuf failed: %d\n", err);
-		free_tx_buf(vrp, tx_info);
-		goto out;
-	}
-	/* tell the remote processor it has a pending message to read */
-	virtqueue_kick(vrp->svq);
-out:
-	mutex_unlock(&vrp->tx_lock);
-	return err;
-}
-EXPORT_SYMBOL(rpmsg_send_offchannel_raw_zcopy);
-
 int rpmsg_send_offchannel_raw(struct rpmsg_channel *rpdev, u32 src, u32 dst,
 					void *data, int len, bool wait)
 {
@@ -1211,6 +1085,12 @@ void *__rpmsg_ptov(struct virtproc_info *vrp, unsigned long addr, size_t len)
 
 	return (void *)va;
 }
+
+void *rpmsg_ptov(struct virtproc_info *vrp, unsigned long addr, size_t len)
+{
+	return (void *)__rpmsg_ptov(vrp, addr, len);
+}
+EXPORT_SYMBOL(rpmsg_ptov);
 
 void __rpmsg_update_pool_info(struct pool_info *p_info, void *va,
 						unsigned long addr, size_t size)

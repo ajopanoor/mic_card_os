@@ -37,7 +37,6 @@
 #define RPMSG_CLIENT_DEV			"crpmsg"
 #define MAX_DMA_RBLK_CNT			128
 #define DMA_BUF_SIZE				PAGE_ALIGN(64 * 1024ULL)
-#define RPMSG_IOV_DMA				1
 
 /* Driver name */
 static const char driver_name[] = "rpmsg_client";
@@ -316,23 +315,11 @@ void dma_buf_free(struct rpmsg_channel *rpdev, struct dma_buf_info *dinfo)
 	kfree(dinfo);
 }
 
-static void __zcopy_free_buf(struct rpmsg_channel *rpdev, void *data, int len,
-		void *priv, u32 src)
-{
-	struct dma_buf_info *sbuf = priv;
-
-	dev_dbg(&rpdev->dev,"%s src %u data %p priv %p len %d\n", __func__,
-			src, data, priv, len);
-
-	dma_buf_free(rpdev, sbuf);
-}
-
 static ssize_t
 __rpmsg_write(struct rpmsg_client_vdev *rvdev, const char __user *buf, size_t count)
 {
 	struct rpmsg_channel *rpdev = rvdev->rcdev->rpdev;
 	int buf_0 = ((int __user *)buf)[0];
-	struct dma_buf_info *sbuf = NULL;
 	int ret = -EINVAL;
 
 	if (count > DMA_BUF_SIZE)
@@ -340,26 +327,9 @@ __rpmsg_write(struct rpmsg_client_vdev *rvdev, const char __user *buf, size_t co
 
 	LOG_TIME(send_start_time);
 
-	if (rvdev->flags & (O_NONBLOCK|~O_SYNC)) {
+	if (rvdev->flags & O_NONBLOCK) {
 		ret = rpmsg_trysend_offchannel(rpdev, rvdev->src, rvdev->dst,
 				(void *)buf, (int)count);
-
-	} else if (rvdev->flags & O_SYNC) {
-		sbuf = dma_buf_alloc(rpdev, count);
-		if(!sbuf) {
-			dev_err(&rpdev->dev, "%s zero-copy tx failed", __func__);
-			goto write_fail;
-		}
-		ret = copy_from_user(sbuf->va, buf, count);
-		if(ret) {
-			dev_err(&rpdev->dev, "%s copy_from_user failed uptr %p"
-				       "kptr %p\n", __func__, buf, sbuf->va);
-			dma_buf_free(rpdev, sbuf);
-			goto write_fail;
-		}
-		ret = rpmsg_send_offchannel_zcopy(rpdev, rvdev->src,
-					rvdev->dst, (void *)sbuf->va,
-					(int) count, __zcopy_free_buf, sbuf);
 	} else {
 		ret = rpmsg_send_offchannel(rpdev, rvdev->src, rvdev->dst,
 				(void *)buf, (int)count);
@@ -493,89 +463,40 @@ error:
 	return err;
 }
 
-static int rpmsg_copy_to_user(struct mic_driver *mdrv, struct dma_buf_info *dinfo,
-				   size_t len, u64 daddr, size_t dlen)
+#define __SYNC_DMA(rpdev, mdrv, da, daddr, iovlen, dma)		\
+({								\
+ 	int  __ret = 0;						\
+ 	if (dma) {						\
+		daddr = (0x8000000000 | daddr);			\
+		__ret = __sync_dma(mdrv, da, daddr, iovlen);	\
+	} else {						\
+		void __iomem *dbuf;				\
+ 		dbuf = rpmsg_ptov(rpdev->vrp, daddr, iovlen);	\
+		memcpy(va, dbuf, iovlen);			\
+	}							\
+	__ret;							\
+})
+
+static int __vringh_copy2(struct rpmsg_channel *rpdev, struct vringh_kiov *iov,
+		struct dma_buf_info *dinfo, size_t len, size_t *out_len, bool dma)
 {
-	size_t dma_alignment = 1 << mdrv->dma_ch[0]->device->copy_align;
-	size_t dma_offset;
-	size_t partlen;
-	int err;
-
-	dma_offset = daddr - round_down(daddr, dma_alignment);
-	daddr -= dma_offset;
-	len += dma_offset;
-
-	while (len) {
-		partlen = min_t(size_t, len, DMA_BUF_SIZE);
-
-		err = __sync_dma(mdrv, dinfo->da, daddr,
-				   ALIGN(partlen, dma_alignment));
-		if (err)
-			goto err;
-
-		daddr += partlen;
-		len -= partlen;
-	}
-	return 0;
-err:
-	printk(KERN_ERR "%s %d err %d\n", __func__, __LINE__, err);
-	return err;
-}
-
-static int __vringh_copy(struct mic_driver *mdrv, struct vringh_kiov *iov,
-		struct dma_buf_info *dinfo, size_t len, size_t *out_len)
-{
-	int ret = 0;
-	size_t partlen, tot_len = 0;
-	u64 maddr;
-
-	while (len && iov->i < iov->used) {
-		partlen = min(iov->iov[iov->i].iov_len, len);
-		maddr = (0x8000000000 | (u64)iov->iov[iov->i].iov_base);
-		ret = rpmsg_copy_to_user(mdrv, dinfo, partlen, maddr,
-						iov->iov[iov->i].iov_len);
-		if (ret) {
-			printk(KERN_ERR "%s %d err %d\n", __func__, __LINE__, ret);
-			break;
-		}
-		len -= partlen;
-		dinfo->va += partlen;
-		tot_len += partlen;
-		iov->consumed += partlen;
-		iov->iov[iov->i].iov_len -= partlen;
-		iov->iov[iov->i].iov_base += partlen;
-		if (!iov->iov[iov->i].iov_len) {
-			/* Fix up old iov element then increment. */
-			iov->iov[iov->i].iov_len = iov->consumed;
-			iov->iov[iov->i].iov_base -= iov->consumed;
-			iov->consumed = 0;
-			iov->i++;
-		}
-	}
-	*out_len = tot_len;
-	return ret;
-}
-
-static int __vringh_copy2(struct mic_driver *mdrv, struct vringh_kiov *iov,
-		struct dma_buf_info *dinfo, size_t len, size_t *out_len)
-{
-	int ret = 0, err;
+	struct mic_driver *mdrv = dev_get_drvdata(&rpdev->dev);
 	size_t iovlen, tot_len = 0;
 	u64 daddr, da;
+	int err = 0;
 	void *va;
 
 	va = dinfo->va;
 	da = dinfo->da;
 	while (len && iov->i < iov->used) {
 		iovlen = iov->iov[iov->i].iov_len;
-		daddr = (0x8000000000 | (u64)iov->iov[iov->i].iov_base);
-		err = __sync_dma(mdrv, da, daddr, iovlen);
+		daddr = (u64)iov->iov[iov->i].iov_base;
+		err = __SYNC_DMA(rpdev, mdrv, da, daddr, iovlen, dma);
 		if(err) {
-			void __iomem *dbuf = __va(daddr);
-			printk(KERN_ERR "%s %d DMA sync failed %lx len %zu"
+			printk(KERN_ERR "%s %d DMA sync failed %llx len %zu"
 				" fallback to memcpy\n", __func__, __LINE__,
 				(u64)daddr, iovlen);
-			memcpy(va, dbuf, iovlen);
+			(void)__SYNC_DMA(rpdev, mdrv, da, daddr, iovlen, false);
 		}
 		len -= iovlen;
 		va += iovlen;
@@ -584,15 +505,15 @@ static int __vringh_copy2(struct mic_driver *mdrv, struct vringh_kiov *iov,
 		++iov->i;
 	}
 	*out_len = tot_len;
-	return ret;
+	return err;
 }
 
 void rpmsg_iov_cb(struct rpmsg_channel *rpdev, void *data, int len,
 						void *priv, u32 src)
 {
-	struct mic_driver *mdrv = dev_get_drvdata(&rpdev->dev);
 	struct rpmsg_client_vdev *rvdev = priv;
 	struct dma_buf_info *dinfo = rcdev->dma_buf_iov;
+	bool dma = (rvdev->flags & O_SYNC);
 	struct vringh_kiov *riov = data;
 	size_t count;
 	int ret;
@@ -602,16 +523,15 @@ void rpmsg_iov_cb(struct rpmsg_channel *rpdev, void *data, int len,
 	BUG_ON(!dinfo);
 	BUG_ON(!rvdev);
 
-	ret = __vringh_copy2(mdrv, riov, dinfo, dinfo->len, &count);
+	ret = __vringh_copy2(rpdev, riov, dinfo, dinfo->len, &count, dma);
 	if(ret)
 		dev_err(&rpdev->dev, "%s DMA failed\n",__func__);
 
-	dev_dbg(&rpdev->dev, "%s: DMA %zu bytes of %d sized buffer from "
-			"0x%x", __func__, count, len, src);
-
 	if(rvdev->ping_cb)
 		rvdev->ping_cb(rvdev, dinfo->va, count, src);
-
+	else
+		dev_info(&rpdev->dev, "%s %zu bytes of %d sized buf from %d\n",
+			(dma ? "dma-ed" : "memcpy-ed"), count, len, src);
 	nrecv++;
 	brecv += count;
 	LOG_TIME(recv_end_time);
@@ -701,7 +621,7 @@ static void rpmsg_cfg_client_dev(struct rpmsg_client_vdev *rvdev,
 		rvdev->dst = kargs->dst_ept;
 	}
 	if (kargs->flags & O_SYNC) {
-		dev_info(&rpdev->dev, "%s cfg zero-copy tx\n", __func__);
+		dev_info(&rpdev->dev, "%s cfg mem-copy rx\n", __func__);
 		rvdev->flags |= O_SYNC;
 	}
 }
@@ -733,9 +653,6 @@ static inline rpmsg_rx_cb_t get_cb(struct rpmsg_client_device *rcdev, u32 addr)
 	switch (addr) {
 		case DMA_ADDR:
 			cb = rpmsg_dma_cb;
-			break;
-		case LOOP_ADDR:
-			cb = rpmsg_loopback_cb;
 			break;
 		case IOV_ADDR:
 			cb = rpmsg_iov_cb;
@@ -819,14 +736,11 @@ static void ping_rx_worker(struct rpmsg_client_vdev *rvdev, void *data, int len,
 	struct rpmsg_test_args *kargs = rvdev->priv;
 	int seq, i, ept = rvdev->src;
 
-	LOG_TIME(ping_end_time);
-	UPDATE_RTT(ping_start_time, ping_end_time, rtsum, rtmin, rtmax, triptime);
-
 	i = (ept == DMA_ADDR || ept == IOV_ADDR) ? 4 : 0;
 
 	seq = ((int *)kargs->rbuf)[0] = ((u32 *)data)[i];
 
-	dev_info(&rpdev->dev, "%s to %d seq [%d]\n", __func__, src, seq);
+	dev_dbg(&rpdev->dev, "%s to %d seq [%d]\n", __func__, src, seq);
 
 	(void)__rpmsg_write(rvdev, kargs->rbuf, kargs->rbuf_size);
 
@@ -837,7 +751,6 @@ static void ping_rx_worker(struct rpmsg_client_vdev *rvdev, void *data, int len,
 		wake_up_interruptible(&rvdev->client_wait);
 		return;
 	}
-	LOG_TIME(ping_start_time);
 }
 
 static int rpmsg_ping_send(struct rpmsg_client_vdev *rvdev,
@@ -875,8 +788,6 @@ static int rpmsg_ping_recv(struct rpmsg_client_vdev *rvdev,
 {
 	struct rpmsg_channel *rpdev = rvdev->rcdev->rpdev;
 	int ret = 0;
-
-	LOG_TIME(ping_start_time);
 
 	kargs->rbuf = vmalloc(PING_RX_BUF_SIZE);
 	if (IS_ERR(kargs->rbuf)) {
